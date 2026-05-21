@@ -9,7 +9,9 @@ export type AuthErrorCode =
   | 'unauthenticated'
   | 'forbidden'
   | 'not_found'
-  | 'duplicate_key';
+  | 'duplicate_key'
+  | 'invalid_transition'
+  | 'conflict';
 
 export class AuthError extends Error {
   readonly code: AuthErrorCode;
