@@ -55,7 +55,7 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 ### Phase 5 — Cross-Cutting Polish
 
 - [x] 5a Audit log surface (admin view + CSV export)
-- [ ] 5b API hardening: cursor pagination, OpenAPI, rate limit, backup runbook
+- [x] 5b API hardening: cursor pagination, OpenAPI, rate limit, backup runbook
 
 ### Final Verification
 
