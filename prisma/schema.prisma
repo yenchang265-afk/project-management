@@ -99,6 +99,7 @@ model Project {
   issueCounter  IssueCounter?
   issues        Issue[]
   labels        Label[]
+  sprints       Sprint[]
 }
 
 model ProjectMember {
@@ -175,6 +176,7 @@ model Issue {
   linksFrom   IssueLink[]       @relation("IssueLinkFrom")
   linksTo     IssueLink[]       @relation("IssueLinkTo")
   activity    ActivityLogEntry[]
+  sprintIssues SprintIssue[]
 
   @@unique([projectId, number])
   @@unique([key])
@@ -260,4 +262,40 @@ model ActivityLogEntry {
   actor User  @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([issueId, at])
+}
+
+enum SprintState {
+  PLANNED
+  ACTIVE
+  COMPLETED
+}
+
+model Sprint {
+  id          String      @id @default(cuid())
+  projectId   String
+  name        String
+  goal        String?
+  state       SprintState @default(PLANNED)
+  startDate   DateTime?
+  endDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  SprintIssue[]
+
+  @@index([projectId, state])
+}
+
+model SprintIssue {
+  sprintId String
+  issueId  String
+  rank     Int
+
+  sprint Sprint @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+  issue  Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@id([sprintId, issueId])
+  @@unique([sprintId, rank])
 }
