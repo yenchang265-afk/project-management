@@ -399,3 +399,15 @@ model AuditEvent {
   @@index([kind, at])
   @@index([actorId, at])
 }
+
+// Phase 5b — in-Postgres token-bucket rate limiter.
+//
+// One row per (bucket key). The service refreshes `tokens` based on the time
+// since `lastRefill` and decrements on each accepted request. Keys are
+// opaque strings shaped like `auth:ip:1.2.3.4` or `write:user:abc123` so the
+// same table works for auth-attempt and write rate limits without joins.
+model RateLimitBucket {
+  key        String   @id
+  tokens     Float
+  lastRefill DateTime
+}
