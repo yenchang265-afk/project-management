@@ -48,15 +48,31 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <h1 className="text-2xl font-semibold">
             <span className="font-mono text-base text-gray-500">{project.key}</span> {project.name}
           </h1>
-          {hasRoleAtLeast(role, 'LEAD') ? (
+          <div className="flex gap-2">
             <Link
-              href={`/projects/${project.key}/settings`}
+              href={`/projects/${project.key}/board`}
               className="rounded border px-3 py-2 text-sm"
-              data-testid="project-settings-link"
+              data-testid="project-board-link"
             >
-              Settings
+              Board
             </Link>
-          ) : null}
+            <Link
+              href={`/projects/${project.key}/backlog`}
+              className="rounded border px-3 py-2 text-sm"
+              data-testid="project-backlog-link"
+            >
+              Backlog
+            </Link>
+            {hasRoleAtLeast(role, 'LEAD') ? (
+              <Link
+                href={`/projects/${project.key}/settings`}
+                className="rounded border px-3 py-2 text-sm"
+                data-testid="project-settings-link"
+              >
+                Settings
+              </Link>
+            ) : null}
+          </div>
         </div>
         <dl className="mt-3 grid grid-cols-[8rem_1fr] gap-y-1 text-sm">
           <dt className="text-gray-600">Lead</dt>
