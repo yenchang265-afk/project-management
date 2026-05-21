@@ -51,6 +51,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Regenerate OpenAPI doc (must match committed copy)
+        run: |
+          pnpm openapi
+          git diff --exit-code docs/openapi.json
+
       - name: Prisma generate
         run: pnpm prisma generate
 

@@ -12,14 +12,26 @@ import '../src/lib/openapi/routes';
 
 import { buildOpenApiDocument } from '../src/lib/openapi/registry';
 
-function main(): void {
+async function main(): Promise<void> {
   const doc = buildOpenApiDocument();
   const outPath = join(process.cwd(), 'docs', 'openapi.json');
   mkdirSync(dirname(outPath), { recursive: true });
-  // Trailing newline keeps git diffs clean.
-  writeFileSync(outPath, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+  const raw = JSON.stringify(doc, null, 2) + '\n';
+  // Prettier-format so CI's `git diff --exit-code` doesn't trip when a
+  // developer ran `prettier --write` locally. We pull prettier dynamically
+  // so this script doesn't add a hard dep when only types are needed.
+  let formatted = raw;
+  try {
+    const prettier: typeof import('prettier') =
+      (await import('prettier')).default ?? (await import('prettier'));
+    formatted = await prettier.format(raw, { parser: 'json' });
+  } catch {
+    // Fallback: write the raw output. CI will fail loudly if the format
+    // drifts, but the OpenAPI doc itself is still valid.
+  }
+  writeFileSync(outPath, formatted, 'utf8');
   // eslint-disable-next-line no-console
   console.log(`wrote ${outPath}`);
 }
 
-main();
+void main();
