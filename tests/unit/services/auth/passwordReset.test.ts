@@ -20,7 +20,7 @@ describe('auth password reset', () => {
     it('returns an opaque token string for an existing user', async () => {
       const token = await service.createPasswordResetToken('carol@example.com');
       expect(typeof token).toBe('string');
-      expect(token.length).toBeGreaterThanOrEqual(32);
+      expect(token?.length ?? 0).toBeGreaterThanOrEqual(32);
       // The plaintext token must not be stored verbatim — only a hash of it.
       const stored = [...prisma._state.users.values()][0];
       expect(stored?.passwordResetToken).toBeTruthy();
