@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server';
 
 import { AuthError } from '@/lib/errors';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 import { prisma } from '@/server/db';
 import { requireUser, requireUserWithRole } from '@/server/auth/guards';
 import { hasRoleAtLeast } from '@/server/auth/roles';
@@ -30,7 +31,7 @@ function errorResponse(err: unknown): Response {
   return NextResponse.json({ error: { code: 'internal' } }, { status: 500 });
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function postHandler(req: Request): Promise<Response> {
   let body: unknown;
   try {
     body = await req.json();
@@ -63,6 +64,8 @@ export async function POST(req: Request): Promise<Response> {
     return errorResponse(err);
   }
 }
+
+export const POST = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, postHandler);
 
 export async function GET(req: Request): Promise<Response> {
   try {

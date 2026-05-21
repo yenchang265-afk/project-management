@@ -4,11 +4,9 @@ import { requireUser } from '@/server/auth/guards';
 import { prisma } from '@/server/db';
 import { createSprintsService } from '@/server/services/sprints';
 import { ok, toErrorResponse } from '@/lib/http';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 
-export async function POST(
-  _req: Request,
-  ctx: { params: Promise<{ id: string }> },
-): Promise<Response> {
+async function handler(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   try {
     const { id } = await ctx.params;
     const actor = await requireUser();
@@ -19,3 +17,5 @@ export async function POST(
     return toErrorResponse(err);
   }
 }
+
+export const POST = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, handler);

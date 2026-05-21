@@ -4,6 +4,7 @@
 import { NextResponse } from 'next/server';
 
 import { AuthError } from '@/lib/errors';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 import { prisma } from '@/server/db';
 import { requireProjectAccess } from '@/server/auth/projectAccess';
 import { createProjectsService } from '@/server/services/projects';
@@ -40,7 +41,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
+async function patchHandler(
   req: Request,
   { params }: { params: Promise<{ key: string }> },
 ): Promise<Response> {
@@ -71,3 +72,5 @@ export async function PATCH(
     return errorResponse(err);
   }
 }
+
+export const PATCH = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, patchHandler);

@@ -5,8 +5,9 @@ import { requireUser } from '@/server/auth/guards';
 import { prisma } from '@/server/db';
 import { createIssuesService } from '@/server/services/issues';
 import { created, ok, toErrorResponse, badRequest } from '@/lib/http';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 
-export async function POST(
+async function postHandler(
   req: Request,
   ctx: { params: Promise<{ key: string }> },
 ): Promise<Response> {
@@ -31,6 +32,8 @@ export async function POST(
     return toErrorResponse(err);
   }
 }
+
+export const POST = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, postHandler);
 
 export async function GET(
   req: Request,

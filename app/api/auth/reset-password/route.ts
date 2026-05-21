@@ -2,10 +2,11 @@
 import { NextResponse } from 'next/server';
 
 import { AuthError } from '@/lib/errors';
+import { AUTH_LIMIT, authIpKey, withRateLimit } from '@/lib/rateLimit/middleware';
 import { prisma } from '@/server/db';
 import { createAuthService } from '@/server/services/auth';
 
-export async function POST(req: Request): Promise<Response> {
+async function handler(req: Request): Promise<Response> {
   let body: unknown;
   try {
     body = await req.json();
@@ -29,3 +30,5 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: { code: 'internal' } }, { status: 500 });
   }
 }
+
+export const POST = withRateLimit({ keyFn: authIpKey, limit: AUTH_LIMIT }, handler);

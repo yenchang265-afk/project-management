@@ -4,8 +4,9 @@ import { requireUser } from '@/server/auth/guards';
 import { prisma } from '@/server/db';
 import { createIssuesService } from '@/server/services/issues';
 import { noContent, toErrorResponse } from '@/lib/http';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 
-export async function DELETE(
+async function handler(
   _req: Request,
   ctx: { params: Promise<{ attachmentId: string }> },
 ): Promise<Response> {
@@ -19,3 +20,5 @@ export async function DELETE(
     return toErrorResponse(err);
   }
 }
+
+export const DELETE = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, handler);

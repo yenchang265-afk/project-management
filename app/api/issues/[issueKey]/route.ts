@@ -6,6 +6,7 @@ import { requireUser } from '@/server/auth/guards';
 import { prisma } from '@/server/db';
 import { createIssuesService } from '@/server/services/issues';
 import { badRequest, noContent, ok, toErrorResponse } from '@/lib/http';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 
 export async function GET(
   _req: Request,
@@ -22,7 +23,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
+async function patchHandler(
   req: Request,
   ctx: { params: Promise<{ issueKey: string }> },
 ): Promise<Response> {
@@ -46,7 +47,7 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
+async function deleteHandler(
   _req: Request,
   ctx: { params: Promise<{ issueKey: string }> },
 ): Promise<Response> {
@@ -60,3 +61,6 @@ export async function DELETE(
     return toErrorResponse(err);
   }
 }
+
+export const PATCH = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, patchHandler);
+export const DELETE = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, deleteHandler);

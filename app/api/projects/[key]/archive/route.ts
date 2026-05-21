@@ -3,11 +3,12 @@
 import { NextResponse } from 'next/server';
 
 import { AuthError } from '@/lib/errors';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 import { prisma } from '@/server/db';
 import { requireProjectAccess } from '@/server/auth/projectAccess';
 import { createProjectsService } from '@/server/services/projects';
 
-export async function POST(
+async function handler(
   _req: Request,
   { params }: { params: Promise<{ key: string }> },
 ): Promise<Response> {
@@ -34,3 +35,5 @@ export async function POST(
     return NextResponse.json({ error: { code: 'internal' } }, { status: 500 });
   }
 }
+
+export const POST = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, handler);

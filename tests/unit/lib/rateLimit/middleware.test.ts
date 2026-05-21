@@ -22,11 +22,15 @@ function mkReq(headers: Record<string, string> = {}): Request {
   return new Request('http://localhost/test', { method: 'POST', headers });
 }
 
+type TestCtx = { params: Promise<Record<string, never>> };
+
 describe('withRateLimit()', () => {
   it('invokes the handler when the consumer allows', async () => {
-    const handler = vi.fn(async () => new Response('ok', { status: 200 }));
+    const handler = vi.fn(
+      async (_req: Request, _ctx: TestCtx) => new Response('ok', { status: 200 }),
+    );
     const consumer = vi.fn(async () => ({ allowed: true as const, remaining: 9 }));
-    const wrapped = withRateLimit(
+    const wrapped = withRateLimit<TestCtx>(
       { keyFn: () => 'fixed-key', limit: WRITE_LIMIT, consumer },
       handler,
     );
@@ -37,13 +41,16 @@ describe('withRateLimit()', () => {
   });
 
   it('returns 429 with Retry-After when denied', async () => {
-    const handler = vi.fn();
+    const handler = vi.fn(async (_req: Request, _ctx: TestCtx) => new Response('unreached'));
     const consumer = vi.fn(async () => ({
       allowed: false as const,
       remaining: 0,
       retryAfterMs: 2500,
     }));
-    const wrapped = withRateLimit({ keyFn: () => 'k', limit: AUTH_LIMIT, consumer }, handler);
+    const wrapped = withRateLimit<TestCtx>(
+      { keyFn: () => 'k', limit: AUTH_LIMIT, consumer },
+      handler,
+    );
     const res = await wrapped(mkReq(), { params: Promise.resolve({}) });
     expect(res.status).toBe(429);
     expect(res.headers.get('Retry-After')).toBe('3'); // ceil(2.5)
@@ -53,9 +60,11 @@ describe('withRateLimit()', () => {
   });
 
   it('falls open if the keyFn throws', async () => {
-    const handler = vi.fn(async () => new Response('ok', { status: 200 }));
+    const handler = vi.fn(
+      async (_req: Request, _ctx: TestCtx) => new Response('ok', { status: 200 }),
+    );
     const consumer = vi.fn();
-    const wrapped = withRateLimit(
+    const wrapped = withRateLimit<TestCtx>(
       {
         keyFn: () => {
           throw new Error('boom');

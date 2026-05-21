@@ -4,11 +4,9 @@ import { requireUser } from '@/server/auth/guards';
 import { prisma } from '@/server/db';
 import { createSprintsService } from '@/server/services/sprints';
 import { badRequest, ok, toErrorResponse } from '@/lib/http';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 
-export async function POST(
-  req: Request,
-  ctx: { params: Promise<{ id: string }> },
-): Promise<Response> {
+async function handler(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   let body: unknown = {};
   const text = await req.text().catch(() => '');
   if (text) {
@@ -36,3 +34,5 @@ export async function POST(
     return toErrorResponse(err);
   }
 }
+
+export const POST = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, handler);

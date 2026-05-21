@@ -24,14 +24,23 @@ export type RateLimitOptions = {
   consumer?: typeof consume;
 };
 
-export type Handler<Params> = (req: Request, ctx: { params: Promise<Params> }) => Promise<Response>;
+// Route handlers come in two shapes:
+//   - root routes (no dynamic segments) take `(req)`
+//   - parametrised routes take `(req, ctx)` where ctx = { params }
+// We expose two overloads of withRateLimit so each caller's signature is
+// preserved end-to-end. Integration tests that call `POST(req)` directly
+// against a root route still typecheck.
+type Handler0 = (req: Request) => Promise<Response>;
+type Handler1<Ctx> = (req: Request, ctx: Ctx) => Promise<Response>;
 
-export function withRateLimit<Params>(
+export function withRateLimit(opts: RateLimitOptions, handler: Handler0): Handler0;
+export function withRateLimit<Ctx>(opts: RateLimitOptions, handler: Handler1<Ctx>): Handler1<Ctx>;
+export function withRateLimit<Ctx>(
   opts: RateLimitOptions,
-  handler: Handler<Params>,
-): Handler<Params> {
+  handler: Handler0 | Handler1<Ctx>,
+): Handler0 | Handler1<Ctx> {
   const consumer = opts.consumer ?? consume;
-  return async (req, ctx) => {
+  return async (req: Request, ctx?: Ctx): Promise<Response> => {
     // We don't unwrap params here — passing a Promise through to keyFn would
     // be awkward and most keys only need the request. If a future key
     // requires a route param, keyFn can `await ctx?.params`.
@@ -40,7 +49,7 @@ export function withRateLimit<Params>(
       key = await opts.keyFn({ req });
     } catch {
       // If we can't compute a key, fail open rather than block all traffic.
-      return handler(req, ctx);
+      return (handler as Handler1<Ctx>)(req, ctx as Ctx);
     }
     const outcome = await consumer(prisma, key, opts.limit);
     if (!outcome.allowed) {
@@ -49,7 +58,7 @@ export function withRateLimit<Params>(
         message: 'Rate limit exceeded',
       });
     }
-    return handler(req, ctx);
+    return (handler as Handler1<Ctx>)(req, ctx as Ctx);
   };
 }
 

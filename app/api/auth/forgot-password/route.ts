@@ -5,12 +5,13 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { AUTH_LIMIT, authIpKey, withRateLimit } from '@/lib/rateLimit/middleware';
 import { prisma } from '@/server/db';
 import { createAuthService } from '@/server/services/auth';
 
 const inputSchema = z.object({ email: z.string() });
 
-export async function POST(req: Request): Promise<Response> {
+async function handler(req: Request): Promise<Response> {
   let parsed: { email: string };
   try {
     parsed = inputSchema.parse(await req.json());
@@ -24,3 +25,5 @@ export async function POST(req: Request): Promise<Response> {
   await svc.createPasswordResetToken(parsed.email);
   return new NextResponse(null, { status: 204 });
 }
+
+export const POST = withRateLimit({ keyFn: authIpKey, limit: AUTH_LIMIT }, handler);
