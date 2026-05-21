@@ -16,7 +16,9 @@ afterAll(async () => {
 describe("canary — database connectivity", () => {
   it("connects to the database", async () => {
     const result = await prisma.$queryRaw<[{ one: bigint }]>`SELECT 1 AS one`;
-    expect(Number(result[0]?.one)).toBe(1);
+    const row = result[0];
+    if (!row) throw new Error("Query returned no rows");
+    expect(Number(row.one)).toBe(1);
   });
 
   it("User table exists and is queryable", async () => {

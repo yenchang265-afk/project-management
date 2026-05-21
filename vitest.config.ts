@@ -17,9 +17,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/server/services/**"],
-      thresholds: {
-        lines: 85,
-      },
+      // 85% gate enforced once Phase 1+ populates src/server/services/
+      thresholds: { lines: 85 },
     },
   },
   resolve: {
