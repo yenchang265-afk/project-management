@@ -10,6 +10,9 @@
 /playwright-report
 /test-results
 
+# claude code worktrees and local state
+.claude/
+
 # next.js
 /.next/
 /out/
