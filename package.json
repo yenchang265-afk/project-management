@@ -15,9 +15,11 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "format": "prettier --write .",
+    "openapi": "tsx scripts/generate-openapi.ts",
     "prepare": "husky"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
     "@auth/prisma-adapter": "^2.7.4",
     "@aws-sdk/client-s3": "^3.1051.0",
     "@aws-sdk/s3-request-presigner": "^3.1051.0",
