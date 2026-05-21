@@ -129,20 +129,23 @@ describe('search.searchIssues', () => {
       { projectKey: 'ALPHA', q: 'login', filters: { assigneeId: 'me' } },
       { id: scaff.lead.id, role: 'LEAD' },
     );
-    expect(
-      ((queryRaw.mock.calls[0]?.[0] as { strings?: string[] })?.strings ?? []).join(' '),
-    ).toContain('"assigneeId" =');
+    expect(sqlOf(queryRaw)).toContain('"assigneeId" =');
 
     queryRaw.mockClear();
     await svc.searchIssues(
       { projectKey: 'ALPHA', q: 'login', filters: { assigneeId: 'unassigned' } },
       { id: scaff.lead.id, role: 'LEAD' },
     );
-    expect(
-      ((queryRaw.mock.calls[0]?.[0] as { strings?: string[] })?.strings ?? []).join(' '),
-    ).toContain('"assigneeId" IS NULL');
+    expect(sqlOf(queryRaw)).toContain('"assigneeId" IS NULL');
   });
 });
+
+function sqlOf(mock: { mock: { calls: unknown[][] } }): string {
+  const first = (mock.mock.calls as ReadonlyArray<ReadonlyArray<unknown>>)[0];
+  const firstArg = first ? first[0] : undefined;
+  const strings = (firstArg as { strings?: string[] } | undefined)?.strings ?? [];
+  return strings.join(' ');
+}
 
 function prismaIssueRow(i: { id: string; key: string; title: string; status: string }) {
   return {
