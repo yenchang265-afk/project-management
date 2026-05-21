@@ -35,6 +35,12 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const userById = new Map(users.map((u) => [u.id, u]));
   const lead = await prisma.user.findUnique({ where: { id: project.leadId } });
 
+  const issues = await prisma.issue.findMany({
+    where: { projectId: project.id },
+    orderBy: [{ createdAt: 'desc' }],
+    take: 25,
+  });
+
   return (
     <main className="mx-auto mt-12 max-w-2xl p-4">
       <header className="mb-6">
@@ -71,6 +77,39 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           ) : null}
         </dl>
       </header>
+
+      <section className="mb-6">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-lg font-medium">Issues</h2>
+          {hasRoleAtLeast(role, 'MEMBER') ? (
+            <Link
+              href={`/projects/${project.key}/issues/new`}
+              className="rounded bg-blue-600 px-3 py-1 text-sm text-white"
+              data-testid="new-issue-link"
+            >
+              New issue
+            </Link>
+          ) : null}
+        </div>
+        <ul className="divide-y rounded border" data-testid="issues-list">
+          {issues.length === 0 ? (
+            <li className="p-3 text-sm text-gray-500">No issues yet.</li>
+          ) : (
+            issues.map((i) => (
+              <li key={i.id} className="flex justify-between p-3 text-sm">
+                <Link
+                  href={`/projects/${project.key}/issues/${i.key}`}
+                  className="flex-1 hover:underline"
+                >
+                  <span className="mr-2 font-mono text-xs text-gray-500">{i.key}</span>
+                  {i.title}
+                </Link>
+                <span className="font-mono text-xs text-gray-500">{i.status}</span>
+              </li>
+            ))
+          )}
+        </ul>
+      </section>
 
       <section>
         <h2 className="mb-2 text-lg font-medium">Members</h2>
