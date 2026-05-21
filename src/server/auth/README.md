@@ -29,10 +29,20 @@ from the database and rejects with `AuthError('forbidden')` if the role rank
 is below `min`. Re-reading from the DB is intentional: it lets admins revoke
 roles without waiting for the JWT to expire.
 
-### `requireProjectAccess(projectKey, min): Promise<never>` — STUB
+### `requireProjectAccess(projectKey, min): Promise<{ user, project, role }>`
 
-Phase 1 ships only the signature; the body throws `NotImplementedError`.
-Phase 2 will look up `ProjectMember` + fall back to the org role.
+Looks up the project by `key`, resolves the caller's effective role as
+`max(orgRole, projectMember.role)` (ADMIN always wins), and rejects if it's
+below `min`.
+
+Errors (all `AuthError`):
+
+- `unauthenticated` — no session.
+- `not_found` — project key not found.
+- `forbidden` — caller is not a project member (and not org ADMIN), or the
+  effective role is below `min`.
+
+Returns `{ user, project, role }` where `role` is the resolved effective role.
 
 ### `requireRole(actual, min)` / `hasRoleAtLeast(actual, min)` / `ROLE_RANK`
 
