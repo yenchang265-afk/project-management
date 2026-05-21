@@ -18,19 +18,21 @@ enum Role {
 }
 
 model User {
-  id                   String          @id @default(cuid())
+  id                   String           @id @default(cuid())
   name                 String?
-  email                String          @unique
+  email                String           @unique
   emailVerified        DateTime?
   image                String?
   passwordHash         String?
-  passwordResetToken   String?         @unique
+  passwordResetToken   String?          @unique
   passwordResetExpires DateTime?
   accounts             Account[]
   sessions             Session[]
   memberships          OrgMembership[]
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  ledProjects          Project[]        @relation("ProjectLead")
+  projectMemberships   ProjectMember[]
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 }
 
 model Account {
@@ -75,4 +77,39 @@ model OrgMembership {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Project {
+  id          String          @id @default(cuid())
+  key         String          @unique
+  name        String
+  description String?
+  leadId      String
+  archivedAt  DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  lead          User            @relation("ProjectLead", fields: [leadId], references: [id])
+  members       ProjectMember[]
+  issueCounter  IssueCounter?
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      Role
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model IssueCounter {
+  projectId  String  @id
+  lastNumber Int     @default(0)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
