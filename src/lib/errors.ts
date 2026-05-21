@@ -7,7 +7,9 @@ export type AuthErrorCode =
   | 'invalid_token'
   | 'invalid_input'
   | 'unauthenticated'
-  | 'forbidden';
+  | 'forbidden'
+  | 'not_found'
+  | 'duplicate_key';
 
 export class AuthError extends Error {
   readonly code: AuthErrorCode;

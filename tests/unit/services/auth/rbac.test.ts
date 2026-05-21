@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ROLE_RANK, hasRoleAtLeast, requireRole } from '@/server/auth/roles';
-import { AuthError, NotImplementedError } from '@/lib/errors';
-
-// requireProjectAccess lives in guards.ts which imports next-auth; we re-export
-// it from a tiny shim that doesn't pull in next/server, so it's unit-testable.
-import { requireProjectAccess } from '@/server/auth/projectAccess';
+import { AuthError } from '@/lib/errors';
 
 describe('role hierarchy', () => {
   it('orders ADMIN > LEAD > MEMBER > VIEWER', () => {
@@ -38,10 +34,5 @@ describe('requireRole', () => {
   });
 });
 
-describe('requireProjectAccess (stub for Phase 1)', () => {
-  it('throws NotImplementedError — Phase 2 will fill this in', async () => {
-    await expect(requireProjectAccess('ANYKEY', 'MEMBER')).rejects.toBeInstanceOf(
-      NotImplementedError,
-    );
-  });
-});
+// requireProjectAccess unit-tests now live in
+// tests/unit/services/projects/requireProjectAccess.test.ts (Phase 2 fill-in).
