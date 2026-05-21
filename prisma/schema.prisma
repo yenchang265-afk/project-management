@@ -261,3 +261,19 @@ model ActivityLogEntry {
 
   @@index([issueId, at])
 }
+
+// Phase 4a — Boards / Search / Saved Filters
+// SavedFilter stores a user-scoped filter spec (the same JSON shape that
+// `listIssues` accepts) so the Boards / Backlog / Search UIs can recall it.
+model SavedFilter {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String?
+  name      String
+  query     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([projectId])
+}
