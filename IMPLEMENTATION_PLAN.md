@@ -48,7 +48,7 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 ### Phase 4 — Parallel Slices
 
 - [ ] 4a Boards: kanban + backlog + search (tsvector) + saved filters
-- [ ] 4b Sprints: schema, start/complete, board view, burndown
+- [x] 4b Sprints: schema, start/complete, board view, burndown
 - [ ] 4c Notifications: in-app + email, event subscribers, preferences
 - [ ] 4d Dashboard: assigned-to-me, activity feed, project tiles
 
