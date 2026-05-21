@@ -41,6 +41,13 @@ export function withRateLimit<Ctx>(
 ): Handler0 | Handler1<Ctx> {
   const consumer = opts.consumer ?? consume;
   return async (req: Request, ctx?: Ctx): Promise<Response> => {
+    // Allow a per-process opt-out (used by integration tests, which would
+    // otherwise interfere across cases and require maintaining a separate
+    // RateLimitBucket fixture). Unit tests for THIS middleware deliberately
+    // leave the flag unset.
+    if (process.env.DISABLE_RATE_LIMIT === '1') {
+      return (handler as Handler1<Ctx>)(req, ctx as Ctx);
+    }
     // We don't unwrap params here — passing a Promise through to keyFn would
     // be awkward and most keys only need the request. If a future key
     // requires a route param, keyFn can `await ctx?.params`.
@@ -51,7 +58,14 @@ export function withRateLimit<Ctx>(
       // If we can't compute a key, fail open rather than block all traffic.
       return (handler as Handler1<Ctx>)(req, ctx as Ctx);
     }
-    const outcome = await consumer(prisma, key, opts.limit);
+    let outcome;
+    try {
+      outcome = await consumer(prisma, key, opts.limit);
+    } catch {
+      // Persistence failure: fail open. A broken bucket store must not 500
+      // the entire endpoint.
+      return (handler as Handler1<Ctx>)(req, ctx as Ctx);
+    }
     if (!outcome.allowed) {
       return tooManyRequests({
         retryAfterSec: Math.max(1, Math.ceil(outcome.retryAfterMs / 1000)),
