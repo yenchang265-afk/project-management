@@ -38,12 +38,12 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 
 ### Phase 3 — Issues
 
-- [ ] Schema: Issue, Label, Comment, Attachment, IssueLink, ActivityLogEntry
-- [ ] Service tests + impl: CRUD, transitions, @mentions, links, activity log
-- [ ] Integration: RBAC matrix, pagination, filters, attachment flow
-- [ ] E2E: create → comment → transition → attach → link
-- [ ] Domain event emitter on bus
-- [ ] UI: issue detail, create dialog, Tiptap composer, dropzone
+- [x] Schema: Issue, Label, Comment, Attachment, IssueLink, ActivityLogEntry
+- [x] Service tests + impl: CRUD, transitions, @mentions, links, activity log
+- [x] Integration: RBAC matrix, pagination, filters, attachment flow
+- [x] E2E: create → comment → transition → attach → link
+- [x] Domain event emitter on bus
+- [x] UI: issue detail, create dialog, Tiptap composer, dropzone
 
 ### Phase 4 — Parallel Slices
 
