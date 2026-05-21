@@ -7,15 +7,15 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 ## Progress Tracker
 
 ### Phase 0 — Foundation
-- [ ] `package.json` with full script set
-- [ ] `docker-compose.yml` (Postgres, Mailpit, MinIO)
-- [ ] Prisma schema (User placeholder) + first migration
-- [ ] Auth.js skeleton
-- [ ] Vitest + Playwright + Testcontainers configured with canary tests
-- [ ] GitHub Actions CI (lint, typecheck, unit, integration, e2e, build)
-- [ ] `.env.example`, README dev setup
-- [ ] ESLint, Prettier, strict `tsconfig`
-- [ ] Pre-commit hook + PR template
+- [x] `package.json` with full script set
+- [x] `docker-compose.yml` (Postgres, Mailpit, MinIO)
+- [x] Prisma schema (User placeholder) + first migration
+- [x] Auth.js skeleton
+- [x] Vitest + Playwright + Testcontainers configured with canary tests
+- [x] GitHub Actions CI (lint, typecheck, unit, integration, e2e, build)
+- [x] `.env.example`, README dev setup
+- [x] ESLint, Prettier, strict `tsconfig`
+- [x] Pre-commit hook + PR template
 
 ### Phase 1 — Identity & Access
 - [ ] Schema: Auth.js tables + Role enum + OrgMembership
