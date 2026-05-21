@@ -50,7 +50,7 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 - [x] 4a Boards: kanban + backlog + search (tsvector) + saved filters
 - [x] 4b Sprints: schema, start/complete, board view, burndown
 - [x] 4c Notifications: in-app + email, event subscribers, preferences
-- [ ] 4d Dashboard: assigned-to-me, activity feed, project tiles
+- [x] 4d Dashboard: assigned-to-me, activity feed, project tiles
 
 ### Phase 5 — Cross-Cutting Polish
 
