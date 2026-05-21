@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { bootstrapServer } from '@/server/bootstrap';
 import { NotificationBell } from '@/ui/NotificationBell';
+import { AdminLink } from '@/ui/AdminLink';
 
 export const metadata: Metadata = {
   title: 'Project Management',
@@ -30,9 +31,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Link href="/" style={{ fontWeight: 700, textDecoration: 'none', color: '#222' }}>
             Project Management
           </Link>
-          {/* phase-4c:notification-bell:start */}
-          <NotificationBell />
-          {/* phase-4c:notification-bell:end */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {/* phase-5a:admin-link:start */}
+            <AdminLink />
+            {/* phase-5a:admin-link:end */}
+            {/* phase-4c:notification-bell:start */}
+            <NotificationBell />
+            {/* phase-4c:notification-bell:end */}
+          </div>
         </header>
         {children}
       </body>

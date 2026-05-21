@@ -10,6 +10,8 @@
 import { prisma } from '@/server/db';
 import { createNotificationService } from '@/server/services/notifications';
 import { registerNotificationSubscribers } from '@/server/services/notifications/subscribers';
+import { createAuditService } from '@/server/services/audit';
+import { registerAuditSubscribers } from '@/server/services/audit/subscribers';
 import { enqueueEmailNotification } from '@/server/jobs/queue';
 
 let booted = false;
@@ -37,6 +39,9 @@ export function bootstrapServer(): void {
         return issue ?? null;
       },
     });
+    // phase-5a: register audit subscribers (auth.* events → AuditEvent rows).
+    const auditSvc = createAuditService({ prisma });
+    registerAuditSubscribers({ record: (input) => auditSvc.recordAuditEvent(input) });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[bootstrap] subscriber registration failed', err);
