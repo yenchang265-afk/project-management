@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://app:app@localhost:5432/app
+      CI: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate AUTH_SECRET
+        run: echo "AUTH_SECRET=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Prisma generate
+        run: pnpm prisma generate
+
+      - name: Prisma migrate deploy
+        run: pnpm prisma migrate deploy
+
+      - name: Unit tests (with coverage)
+        run: pnpm test --coverage
+
+      - name: Integration tests
+        env:
+          DOCKER_AVAILABLE: '1'
+        run: pnpm test:int
+
+      - name: Build
+        run: pnpm build
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: pnpm test:e2e
