@@ -29,12 +29,12 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 
 ### Phase 2 — Projects
 
-- [ ] Schema: Project, ProjectMember, IssueCounter
-- [ ] Service: CRUD, key format, atomic issue counter
-- [ ] Integration: RBAC for rename/archive
-- [ ] E2E: create → list → archive
-- [ ] UI: `/projects`, `/projects/new`, settings
-- [ ] Export `getProjectByKey(key, user)`
+- [x] Schema: Project, ProjectMember, IssueCounter
+- [x] Service: CRUD, key format, atomic issue counter
+- [x] Integration: RBAC for rename/archive
+- [x] E2E: create → list → archive
+- [x] UI: `/projects`, `/projects/new`, settings
+- [x] Export `getProjectByKey(key, user)`
 
 ### Phase 3 — Issues
 
