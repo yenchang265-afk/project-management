@@ -86,6 +86,62 @@ describe('search.searchIssues', () => {
     expect(res.data).toHaveLength(1);
     expect(res.data[0]?.id).toBe(a.id);
   });
+
+  it('with q, applies status / priority / type / assignee filters into the raw SQL', async () => {
+    const issue = await issues.createIssue(
+      { projectKey: 'ALPHA', title: 'login bug', type: 'BUG', priority: 'HIGH' },
+      { id: scaff.lead.id, role: 'LEAD' },
+    );
+    const queryRaw = vi.fn(async (..._args: unknown[]) => [
+      { ...prismaIssueRow(issue), rank: 0.5 },
+    ]);
+    (prisma as unknown as { $queryRaw: typeof queryRaw }).$queryRaw = queryRaw;
+
+    await svc.searchIssues(
+      {
+        projectKey: 'ALPHA',
+        q: 'login',
+        filters: {
+          status: ['TODO'],
+          priority: ['HIGH'],
+          type: ['BUG'],
+          assigneeId: scaff.lead.id,
+        },
+      },
+      { id: scaff.lead.id, role: 'LEAD' },
+    );
+    const sql = ((queryRaw.mock.calls[0]?.[0] as { strings?: string[] })?.strings ?? []).join(' ');
+    expect(sql).toContain('"status"::text IN');
+    expect(sql).toContain('"priority"::text IN');
+    expect(sql).toContain('"type"::text IN');
+    expect(sql).toContain('"assigneeId" =');
+  });
+
+  it('with q, resolves assigneeId="me" and "unassigned"', async () => {
+    const issue = await issues.createIssue(
+      { projectKey: 'ALPHA', title: 'login bug', type: 'BUG' },
+      { id: scaff.lead.id, role: 'LEAD' },
+    );
+    const queryRaw = vi.fn(async () => [{ ...prismaIssueRow(issue), rank: 0.5 }]);
+    (prisma as unknown as { $queryRaw: typeof queryRaw }).$queryRaw = queryRaw;
+
+    await svc.searchIssues(
+      { projectKey: 'ALPHA', q: 'login', filters: { assigneeId: 'me' } },
+      { id: scaff.lead.id, role: 'LEAD' },
+    );
+    expect(
+      ((queryRaw.mock.calls[0]?.[0] as { strings?: string[] })?.strings ?? []).join(' '),
+    ).toContain('"assigneeId" =');
+
+    queryRaw.mockClear();
+    await svc.searchIssues(
+      { projectKey: 'ALPHA', q: 'login', filters: { assigneeId: 'unassigned' } },
+      { id: scaff.lead.id, role: 'LEAD' },
+    );
+    expect(
+      ((queryRaw.mock.calls[0]?.[0] as { strings?: string[] })?.strings ?? []).join(' '),
+    ).toContain('"assigneeId" IS NULL');
+  });
 });
 
 function prismaIssueRow(i: { id: string; key: string; title: string; status: string }) {
