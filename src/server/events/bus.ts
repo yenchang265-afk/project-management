@@ -1,6 +1,13 @@
-// Minimal in-process domain event bus. Phase 4 swaps the listener for a real
-// notifications/email job consumer; for now this is a logging stub so callers
-// can already emit typed events without coupling to the consumer.
+// In-process pub/sub event bus.
+//
+// Phase 1 shipped a no-op stub with `publish`/`subscribe`. Phase 3 extends it
+// to a proper bus so Phase 4c (Notifications) and Phase 5a (Audit) can subscribe
+// to typed event names. The bus is intentionally tiny and synchronous (handlers
+// are invoked in registration order). Async handlers may return Promises; we
+// fire-and-forget them so emit stays non-blocking. Errors in handlers are
+// caught and logged so one bad subscriber can't break a service mutation.
+
+// ---------- legacy phase-1 API (kept for backward compat) -------------------
 
 export type DomainEvent =
   | {
@@ -11,18 +18,66 @@ export type DomainEvent =
 
 export type DomainEventHandler = (event: DomainEvent) => void | Promise<void>;
 
-const handlers = new Set<DomainEventHandler>();
+const legacyHandlers = new Set<DomainEventHandler>();
 
 export function subscribe(handler: DomainEventHandler): () => void {
-  handlers.add(handler);
-  return () => handlers.delete(handler);
+  legacyHandlers.add(handler);
+  return () => legacyHandlers.delete(handler);
 }
 
 export async function publish(event: DomainEvent): Promise<void> {
-  // Default sink: log so the event is observable in dev/test without a real consumer.
   // eslint-disable-next-line no-console
   console.info('[event]', event.type, event.payload);
-  for (const h of handlers) {
+  for (const h of legacyHandlers) {
     await h(event);
   }
+}
+
+// ---------- phase-3 typed pub/sub ------------------------------------------
+
+type Handler<T> = (payload: T) => void | Promise<void>;
+
+const handlers = new Map<string, Set<Handler<unknown>>>();
+
+export function on<T = unknown>(event: string, handler: Handler<T>): () => void {
+  let set = handlers.get(event);
+  if (!set) {
+    set = new Set();
+    handlers.set(event, set);
+  }
+  set.add(handler as Handler<unknown>);
+  return () => {
+    set?.delete(handler as Handler<unknown>);
+  };
+}
+
+export function once<T = unknown>(event: string, handler: Handler<T>): () => void {
+  const off = on<T>(event, (payload) => {
+    off();
+    return handler(payload);
+  });
+  return off;
+}
+
+export function emit<T = unknown>(event: string, payload: T): void {
+  const set = handlers.get(event);
+  if (!set) return;
+  for (const h of Array.from(set)) {
+    try {
+      const result = (h as Handler<T>)(payload);
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        (result as Promise<unknown>).catch((err: unknown) => {
+          // eslint-disable-next-line no-console
+          console.error('[event-handler-error]', event, err);
+        });
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[event-handler-error]', event, err);
+    }
+  }
+}
+
+export function reset(): void {
+  handlers.clear();
 }
