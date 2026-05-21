@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prisma generate
+        run: pnpm prisma generate
+
       - name: Lint
         run: pnpm lint
 
@@ -53,9 +56,6 @@ jobs:
         run: |
           pnpm openapi
           git diff --exit-code docs/openapi.json
-
-      - name: Prisma generate
-        run: pnpm prisma generate
 
       - name: Prisma migrate deploy
         run: pnpm prisma migrate deploy
