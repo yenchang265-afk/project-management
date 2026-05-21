@@ -1,5 +1,5 @@
 // Project Management — Prisma schema
-// Phase 0: Auth.js core models only. Domain models added in later phases.
+// Phase 1: Auth.js core models + credentials/password-reset fields + RBAC roles.
 
 generator client {
   provider = "prisma-client-js"
@@ -10,16 +10,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  ADMIN
+  LEAD
+  MEMBER
+  VIEWER
+}
+
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  emailVerified DateTime?
-  image         String?
-  accounts      Account[]
-  sessions      Session[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                   String          @id @default(cuid())
+  name                 String?
+  email                String          @unique
+  emailVerified        DateTime?
+  image                String?
+  passwordHash         String?
+  passwordResetToken   String?         @unique
+  passwordResetExpires DateTime?
+  accounts             Account[]
+  sessions             Session[]
+  memberships          OrgMembership[]
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 }
 
 model Account {
@@ -55,4 +66,13 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model OrgMembership {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  role      Role
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
