@@ -48,7 +48,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <h1 className="text-2xl font-semibold">
             <span className="font-mono text-base text-gray-500">{project.key}</span> {project.name}
           </h1>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Link
               href={`/projects/${project.key}/board`}
               className="rounded border px-3 py-2 text-sm"
@@ -62,6 +62,13 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               data-testid="project-backlog-link"
             >
               Backlog
+            </Link>
+            <Link
+              href={`/projects/${project.key}/sprints`}
+              className="rounded border px-3 py-2 text-sm"
+              data-testid="project-sprints-link"
+            >
+              Sprints
             </Link>
             {hasRoleAtLeast(role, 'LEAD') ? (
               <Link
