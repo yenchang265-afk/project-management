@@ -7,6 +7,7 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 ## Progress Tracker
 
 ### Phase 0 — Foundation
+
 - [x] `package.json` with full script set
 - [x] `docker-compose.yml` (Postgres, Mailpit, MinIO)
 - [x] Prisma schema (User placeholder) + first migration
@@ -18,14 +19,16 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 - [x] Pre-commit hook + PR template
 
 ### Phase 1 — Identity & Access
-- [ ] Schema: Auth.js tables + Role enum + OrgMembership
-- [ ] Service tests + impl: register/hash/verify, reset token, RBAC
-- [ ] Integration tests + impl: `/api/auth/*`, session, RBAC middleware
-- [ ] E2E: register → verify → login → logout → reset
-- [ ] UI: login, register, forgot-password, reset-password, profile
-- [ ] Cross-cutting: `requireUser/requireRole/requireProjectAccess` helpers
+
+- [x] Schema: Auth.js tables + Role enum + OrgMembership
+- [x] Service tests + impl: register/hash/verify, reset token, RBAC
+- [x] Integration tests + impl: `/api/auth/*`, session, RBAC middleware
+- [x] E2E: register → verify → login → logout → reset
+- [x] UI: login, register, forgot-password, reset-password, profile
+- [x] Cross-cutting: `requireUser/requireRole/requireProjectAccess` helpers
 
 ### Phase 2 — Projects
+
 - [ ] Schema: Project, ProjectMember, IssueCounter
 - [ ] Service: CRUD, key format, atomic issue counter
 - [ ] Integration: RBAC for rename/archive
@@ -34,6 +37,7 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 - [ ] Export `getProjectByKey(key, user)`
 
 ### Phase 3 — Issues
+
 - [ ] Schema: Issue, Label, Comment, Attachment, IssueLink, ActivityLogEntry
 - [ ] Service tests + impl: CRUD, transitions, @mentions, links, activity log
 - [ ] Integration: RBAC matrix, pagination, filters, attachment flow
@@ -42,16 +46,19 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 - [ ] UI: issue detail, create dialog, Tiptap composer, dropzone
 
 ### Phase 4 — Parallel Slices
+
 - [ ] 4a Boards: kanban + backlog + search (tsvector) + saved filters
 - [ ] 4b Sprints: schema, start/complete, board view, burndown
 - [ ] 4c Notifications: in-app + email, event subscribers, preferences
 - [ ] 4d Dashboard: assigned-to-me, activity feed, project tiles
 
 ### Phase 5 — Cross-Cutting Polish
+
 - [ ] 5a Audit log surface (admin view + CSV export)
 - [ ] 5b API hardening: cursor pagination, OpenAPI, rate limit, backup runbook
 
 ### Final Verification
+
 - [ ] Fresh-clone bootstrap passes all test tiers
 - [ ] Manual smoke covers golden path
 - [ ] CI green on `main`
@@ -61,26 +68,26 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 
 ## 1. Stack & Tooling
 
-| Concern | Choice |
-|---|---|
-| Framework | Next.js 15 (App Router, RSC + server actions) |
-| Language | TypeScript (strict) |
-| ORM / DB | Prisma + PostgreSQL 16 |
-| Auth | Auth.js (NextAuth v5) with credentials + email magic link |
-| Validation | Zod (shared schemas API ↔ UI) |
-| UI | Tailwind CSS + shadcn/ui + Radix primitives |
-| Drag & drop | `@dnd-kit/core` |
-| State (client) | TanStack Query for server state; Zustand for local UI state |
-| Rich text | Tiptap |
-| Background jobs | `pg-boss` (Postgres-backed queue, no extra infra) |
-| Email | Resend (dev: Mailhog/Mailpit via Docker) |
-| File storage | S3-compatible (MinIO in dev) |
-| Unit/integration tests | Vitest + Testing Library |
-| API contract tests | Vitest + `supertest`-style harness against Next route handlers |
-| E2E tests | Playwright |
-| Lint/format | ESLint + Prettier + `tsc --noEmit` |
-| CI | GitHub Actions (lint → typecheck → unit → integration → e2e) |
-| Dev orchestration | `docker compose` (Postgres + Mailpit + MinIO) |
+| Concern                | Choice                                                         |
+| ---------------------- | -------------------------------------------------------------- |
+| Framework              | Next.js 15 (App Router, RSC + server actions)                  |
+| Language               | TypeScript (strict)                                            |
+| ORM / DB               | Prisma + PostgreSQL 16                                         |
+| Auth                   | Auth.js (NextAuth v5) with credentials + email magic link      |
+| Validation             | Zod (shared schemas API ↔ UI)                                  |
+| UI                     | Tailwind CSS + shadcn/ui + Radix primitives                    |
+| Drag & drop            | `@dnd-kit/core`                                                |
+| State (client)         | TanStack Query for server state; Zustand for local UI state    |
+| Rich text              | Tiptap                                                         |
+| Background jobs        | `pg-boss` (Postgres-backed queue, no extra infra)              |
+| Email                  | Resend (dev: Mailhog/Mailpit via Docker)                       |
+| File storage           | S3-compatible (MinIO in dev)                                   |
+| Unit/integration tests | Vitest + Testing Library                                       |
+| API contract tests     | Vitest + `supertest`-style harness against Next route handlers |
+| E2E tests              | Playwright                                                     |
+| Lint/format            | ESLint + Prettier + `tsc --noEmit`                             |
+| CI                     | GitHub Actions (lint → typecheck → unit → integration → e2e)   |
+| Dev orchestration      | `docker compose` (Postgres + Mailpit + MinIO)                  |
 
 ## 2. Repository Layout
 
@@ -113,6 +120,7 @@ Every feature slice follows **red → green → refactor** at three layers:
 3. **E2E test** (Playwright) — one golden-path scenario per slice.
 
 Rules for every subagent:
+
 - Write the failing test before the implementation. Do not write production code without a red test.
 - Coverage gate: ≥85% line coverage on `/src/server/services`. UI components require Testing Library smoke tests only.
 - Factories live in `tests/factories/*.ts` — reuse, never inline fixtures.
@@ -140,6 +148,7 @@ Each agent gets a self-contained prompt that includes: scope, schema additions a
 **Goal:** an empty Next.js app that boots, talks to Postgres, runs all test tiers in CI.
 
 Deliverables:
+
 - `package.json` with scripts: `dev`, `build`, `start`, `test`, `test:int`, `test:e2e`, `lint`, `typecheck`, `db:migrate`, `db:seed`.
 - `docker-compose.yml` (Postgres, Mailpit, MinIO).
 - Prisma schema with only `User` placeholder; first migration applied in CI against ephemeral Postgres.
@@ -159,6 +168,7 @@ Exit criteria: `pnpm test && pnpm test:int && pnpm test:e2e` all green on a fres
 **Schema:** `User`, `Account`, `Session`, `VerificationToken` (Auth.js), `Role` enum (`ADMIN`, `LEAD`, `MEMBER`, `VIEWER`), `OrgMembership`.
 
 **Tests first:**
+
 - Service: register/hash/verify credentials; password reset token lifecycle; role permission checks.
 - Integration: `/api/auth/*` flows, session cookie set, RBAC middleware returns 403 for insufficient role.
 - E2E: register → verify email (Mailpit) → log in → log out → reset password.
@@ -174,6 +184,7 @@ Exit criteria: `pnpm test && pnpm test:int && pnpm test:e2e` all green on a fres
 **Schema:** `Project { id, key (unique), name, description, leadId, archivedAt }`, `ProjectMember { projectId, userId, role }`, `IssueCounter { projectId, lastNumber }`.
 
 **Tests first:**
+
 - Service: create/rename/archive; key uniqueness + format `[A-Z]{2,10}`; auto-increment issue number atomically.
 - Integration: only LEAD/ADMIN can rename or archive; VIEWER cannot.
 - E2E: create project → see it in list → archive → confirm hidden from default list.
@@ -189,6 +200,7 @@ Exit criteria: `pnpm test && pnpm test:int && pnpm test:e2e` all green on a fres
 **Schema:** `Issue { id, projectId, number, key (computed), title, description, type, priority, status, assigneeId, reporterId, dueDate, estimate, createdAt, updatedAt }`, `Label`, `IssueLabel`, `Comment`, `Attachment`, `IssueLink { fromId, toId, type }`, `ActivityLogEntry { issueId, actorId, field, before, after, at }`.
 
 **Tests first (this slice has the most tests — invest heavily):**
+
 - Service: create/update/delete with field-level diff → activity log entries emitted; transition validation against allowed states; @mention parsing; link constraints (no self-link, no duplicate link).
 - Integration: full RBAC matrix per field; pagination on list; filter combinations; attachment upload signed URL flow.
 - E2E: create issue → comment with @mention → change status → attach file → link to another issue → verify activity timeline.
@@ -201,9 +213,10 @@ Exit criteria: `pnpm test && pnpm test:int && pnpm test:e2e` all green on a fres
 
 ## 9. Phase 4 — Parallel Slices
 
-Four agents run concurrently. Each must only consume the public contracts of Phases 1–3; none may modify Issue/Project schemas (additive migrations to *their* tables only).
+Four agents run concurrently. Each must only consume the public contracts of Phases 1–3; none may modify Issue/Project schemas (additive migrations to _their_ tables only).
 
 ### 9a. Boards & Views
+
 - Schema additions: `SavedFilter { id, userId, projectId?, name, query (jsonb) }`.
 - Kanban board (`/projects/[key]/board`) with `@dnd-kit`, columns from project workflow.
 - Backlog list view with sort/filter.
@@ -212,12 +225,14 @@ Four agents run concurrently. Each must only consume the public contracts of Pha
 - Tests: service for filter query → SQL; E2E for drag-drop transitions a real issue.
 
 ### 9b. Sprints
+
 - Schema: `Sprint { id, projectId, name, goal, state (PLANNED/ACTIVE/COMPLETED), startDate, endDate }`, `SprintIssue { sprintId, issueId, rank }`.
 - Routes: create, start (only one ACTIVE per project), complete (moves incomplete issues back to backlog).
 - Active sprint board view; burndown computed from activity log status transitions.
 - E2E: plan sprint → start → move issues to Done → complete → verify burndown end-state.
 
 ### 9c. Notifications
+
 - Schema: `Notification { id, userId, kind, payload (jsonb), readAt, createdAt }`, `NotificationPreference { userId, channel, kind, enabled }`.
 - Subscribe to `issue.*` events from Phase 3. Fan-out: assignee, reporter, mentioned users, watchers.
 - In-app: bell icon + drawer; mark read; mark all read.
@@ -225,6 +240,7 @@ Four agents run concurrently. Each must only consume the public contracts of Pha
 - E2E: user A @mentions user B → user B sees in-app notification and receives email in Mailpit.
 
 ### 9d. Dashboard / Home
+
 - `/` (when authed) shows: "Assigned to me", "Recent activity" (from audit log), project tiles.
 - Pure read-model queries against existing tables; no schema changes.
 - Tests: service-level query correctness with seeded data; E2E for the three sections rendering.
@@ -234,10 +250,12 @@ Four agents run concurrently. Each must only consume the public contracts of Pha
 ## 10. Phase 5 — Cross-Cutting Polish (parallel, 2 agents)
 
 ### 10a. Audit Log surface
+
 - Already populated via `ActivityLogEntry` (Issues) — add org-level audit for auth events, project changes, role changes.
 - Admin-only `/admin/audit` view with filtering and CSV export.
 
 ### 10b. API + Pagination Hardening
+
 - Standardize cursor pagination across all list endpoints; document with OpenAPI generated from Zod schemas (`zod-to-openapi`).
 - Rate limiting middleware (`@upstash/ratelimit` or in-Postgres token bucket) on auth + write endpoints.
 - Response envelope: `{ data, pageInfo }`. Error envelope: `{ error: { code, message, details } }`.
@@ -248,6 +266,7 @@ Four agents run concurrently. Each must only consume the public contracts of Pha
 ## 11. Acceptance Gate (every slice)
 
 A slice is "done" only when:
+
 1. All three test tiers exist and pass in CI.
 2. Coverage gate met on `/src/server/services`.
 3. `pnpm typecheck && pnpm lint` clean.
@@ -259,6 +278,7 @@ A slice is "done" only when:
 ## 12. Verification (end-to-end)
 
 After all phases:
+
 1. Fresh clone → `docker compose up -d && pnpm install && pnpm db:migrate && pnpm db:seed && pnpm test:all` — all green.
 2. `pnpm dev` → manual smoke: register two users, create project, create issue, @mention, drag on board, run a sprint, see notifications, view dashboard.
 3. CI on `main` shows green across lint/type/unit/integration/e2e/build.
@@ -266,13 +286,13 @@ After all phases:
 
 ## 13. Suggested Sequencing Summary
 
-| Phase | Agents in parallel | Blocking? |
-|---|---|---|
-| 0 Foundation | 1 | Yes |
-| 1 Identity & Access | 1 | Yes |
-| 2 Projects | 1 | Yes |
-| 3 Issues | 1 | Yes |
-| 4 Boards / Sprints / Notifications / Dashboard | 4 | No |
-| 5 Audit / API polish | 2 | No |
+| Phase                                          | Agents in parallel | Blocking? |
+| ---------------------------------------------- | ------------------ | --------- |
+| 0 Foundation                                   | 1                  | Yes       |
+| 1 Identity & Access                            | 1                  | Yes       |
+| 2 Projects                                     | 1                  | Yes       |
+| 3 Issues                                       | 1                  | Yes       |
+| 4 Boards / Sprints / Notifications / Dashboard | 4                  | No        |
+| 5 Audit / API polish                           | 2                  | No        |
 
 Total critical path: ~4 sequential agent-units + 1 parallel wave + 1 polish wave.
