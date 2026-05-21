@@ -372,3 +372,30 @@ model IssueWatcher {
   @@id([issueId, userId])
   @@index([userId])
 }
+
+// Phase 5a — Audit Log surface (org-level audit).
+//
+// ActivityLogEntry already captures per-issue field diffs. AuditEvent adds a
+// generic, append-only org-level audit log for auth events (login / register /
+// password reset), project changes (create / rename / archive), and role
+// changes (granted / revoked). The `kind` column is a free-form string so new
+// event kinds can be added without schema migrations; well-known prefixes are
+// `auth.*`, `project.*`, `role.*`.
+//
+// `actorId` is nullable because some events (failed login attempts, system
+// jobs) have no authenticated principal. The row is intentionally NOT a foreign
+// key on User so that deleting a user does not cascade-delete their audit
+// trail. We do, however, keep the field hex/cuid-shaped so a join is possible.
+model AuditEvent {
+  id        String   @id @default(cuid())
+  actorId   String?
+  kind      String
+  target    String?
+  payload   Json
+  ip        String?
+  userAgent String?
+  at        DateTime @default(now())
+
+  @@index([kind, at])
+  @@index([actorId, at])
+}
