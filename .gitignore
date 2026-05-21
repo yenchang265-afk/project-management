@@ -41,3 +41,6 @@ next-env.d.ts
 
 # prisma
 prisma/generated/
+
+# claude code agent worktrees
+.claude/
