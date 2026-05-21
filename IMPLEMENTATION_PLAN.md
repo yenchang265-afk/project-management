@@ -4,6 +4,61 @@ Companion to `FEATURES.md`. This plan covers all 8 **Must Have** categories usin
 
 ---
 
+## Progress Tracker
+
+### Phase 0 — Foundation
+- [ ] `package.json` with full script set
+- [ ] `docker-compose.yml` (Postgres, Mailpit, MinIO)
+- [ ] Prisma schema (User placeholder) + first migration
+- [ ] Auth.js skeleton
+- [ ] Vitest + Playwright + Testcontainers configured with canary tests
+- [ ] GitHub Actions CI (lint, typecheck, unit, integration, e2e, build)
+- [ ] `.env.example`, README dev setup
+- [ ] ESLint, Prettier, strict `tsconfig`
+- [ ] Pre-commit hook + PR template
+
+### Phase 1 — Identity & Access
+- [ ] Schema: Auth.js tables + Role enum + OrgMembership
+- [ ] Service tests + impl: register/hash/verify, reset token, RBAC
+- [ ] Integration tests + impl: `/api/auth/*`, session, RBAC middleware
+- [ ] E2E: register → verify → login → logout → reset
+- [ ] UI: login, register, forgot-password, reset-password, profile
+- [ ] Cross-cutting: `requireUser/requireRole/requireProjectAccess` helpers
+
+### Phase 2 — Projects
+- [ ] Schema: Project, ProjectMember, IssueCounter
+- [ ] Service: CRUD, key format, atomic issue counter
+- [ ] Integration: RBAC for rename/archive
+- [ ] E2E: create → list → archive
+- [ ] UI: `/projects`, `/projects/new`, settings
+- [ ] Export `getProjectByKey(key, user)`
+
+### Phase 3 — Issues
+- [ ] Schema: Issue, Label, Comment, Attachment, IssueLink, ActivityLogEntry
+- [ ] Service tests + impl: CRUD, transitions, @mentions, links, activity log
+- [ ] Integration: RBAC matrix, pagination, filters, attachment flow
+- [ ] E2E: create → comment → transition → attach → link
+- [ ] Domain event emitter on bus
+- [ ] UI: issue detail, create dialog, Tiptap composer, dropzone
+
+### Phase 4 — Parallel Slices
+- [ ] 4a Boards: kanban + backlog + search (tsvector) + saved filters
+- [ ] 4b Sprints: schema, start/complete, board view, burndown
+- [ ] 4c Notifications: in-app + email, event subscribers, preferences
+- [ ] 4d Dashboard: assigned-to-me, activity feed, project tiles
+
+### Phase 5 — Cross-Cutting Polish
+- [ ] 5a Audit log surface (admin view + CSV export)
+- [ ] 5b API hardening: cursor pagination, OpenAPI, rate limit, backup runbook
+
+### Final Verification
+- [ ] Fresh-clone bootstrap passes all test tiers
+- [ ] Manual smoke covers golden path
+- [ ] CI green on `main`
+- [ ] Coverage ≥85% on `/src/server/services`
+
+---
+
 ## 1. Stack & Tooling
 
 | Concern | Choice |
