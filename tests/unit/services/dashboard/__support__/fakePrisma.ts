@@ -150,15 +150,17 @@ export function createFakePrisma() {
         out = out.filter((i) => i.assigneeId === w.assigneeId);
       }
       if (w.status !== undefined) {
-        if (typeof w.status === 'string') {
-          out = out.filter((i) => i.status === w.status);
+        const status = w.status;
+        if (typeof status === 'string') {
+          out = out.filter((i) => i.status === status);
         } else {
-          if (w.status.in) {
-            const set = new Set(w.status.in);
+          if (status.in) {
+            const set = new Set(status.in);
             out = out.filter((i) => set.has(i.status));
           }
-          if (w.status.not) {
-            out = out.filter((i) => i.status !== w.status!.not);
+          if (status.not) {
+            const not = status.not;
+            out = out.filter((i) => i.status !== not);
           }
         }
       }
