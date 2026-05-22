@@ -10,6 +10,9 @@ const envSchema = z.object({
 
 function validateEnv() {
   if (process.env.SKIP_ENV_VALIDATION === "1") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("SKIP_ENV_VALIDATION must not be set in production");
+    }
     return process.env as unknown as z.infer<typeof envSchema>;
   }
   const parsed = envSchema.safeParse(process.env);
