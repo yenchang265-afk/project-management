@@ -4,7 +4,6 @@
 // stream everything that matches). Output is text/csv with a
 // `Content-Disposition: attachment` header so the browser triggers a save.
 
-import { AuthError } from '@/lib/errors';
 import { toErrorResponse } from '@/lib/http';
 import { requireUserWithRole } from '@/server/auth/guards';
 import { prisma } from '@/server/db';
@@ -27,26 +26,14 @@ export async function GET(req: Request): Promise<Response> {
 
     const svc = createAuditService({ prisma });
 
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const writer: CsvWriter = {
-          write: (chunk: string) => {
-            controller.enqueue(encoder.encode(chunk));
-          },
-        };
-        try {
-          await svc.exportAuditEventsCsv({ filters: { kind, actorId, from, to } }, writer);
-          controller.close();
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('[audit] CSV export failed', err);
-          controller.error(err);
-        }
-      },
-    });
+    // Buffer the full CSV before responding so any DB error can be returned as
+    // a proper error response rather than a silently truncated file.
+    const chunks: string[] = [];
+    const writer: CsvWriter = { write: (chunk: string) => { chunks.push(chunk); } };
+    await svc.exportAuditEventsCsv({ filters: { kind, actorId, from, to } }, writer);
+    const csv = chunks.join('');
 
-    return new Response(stream, {
+    return new Response(csv, {
       status: 200,
       headers: {
         'content-type': 'text/csv; charset=utf-8',
@@ -55,7 +42,6 @@ export async function GET(req: Request): Promise<Response> {
       },
     });
   } catch (err) {
-    if (err instanceof AuthError) return toErrorResponse(err);
     return toErrorResponse(err);
   }
 }

@@ -115,6 +115,9 @@ export function createNotificationService(deps: NotificationServiceDeps) {
     const data = parseOrThrow(createNotificationInputSchema, input);
     const payload = data.payload ?? {};
 
+    const userExists = await prisma.user.findUnique({ where: { id: data.userId }, select: { id: true } });
+    if (!userExists) return null;
+
     const inAppEnabled = await isChannelEnabled(data.userId, data.kind, 'IN_APP');
     let row: Notification | null = null;
     if (inAppEnabled) {

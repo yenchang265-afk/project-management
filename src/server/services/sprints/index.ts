@@ -309,6 +309,10 @@ export function createSprintsService(deps: SprintsServiceDeps) {
       if (!prev) {
         // Insert at the very top.
         target = beforeRow.rank - RANK_STEP;
+        if (target <= 0) {
+          await rebalance(sprint.id);
+          return reorderSprintIssue(input, actor);
+        }
       } else {
         target = Math.floor((prev.rank + beforeRow.rank) / 2);
         if (beforeRow.rank - prev.rank < RANK_MIN_GAP) {

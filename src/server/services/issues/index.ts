@@ -225,14 +225,11 @@ export function createIssuesService(deps: IssuesServiceDeps) {
     for (const raw of names) {
       const name = raw.trim();
       if (!name) continue;
-      let label = (await prisma.label.findFirst({
-        where: { projectId, name },
-      })) as Label | null;
-      if (!label) {
-        label = (await prisma.label.create({
-          data: { projectId, name, color: '#999999' },
-        })) as Label;
-      }
+      const label = (await prisma.label.upsert({
+        where: { projectId_name: { projectId, name } },
+        update: {},
+        create: { projectId, name, color: '#999999' },
+      })) as Label;
       out.push(label);
     }
     return out;
@@ -323,6 +320,7 @@ export function createIssuesService(deps: IssuesServiceDeps) {
 
     const labelRows = (await prisma.issueLabel.findMany({
       where: { issueId: issue.id },
+      include: { label: true },
     })) as Array<{
       issueId: string;
       labelId: string;

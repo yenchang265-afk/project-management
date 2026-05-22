@@ -136,9 +136,6 @@ export function createAuthService(deps: AuthServiceDeps) {
     if (!user || !user.passwordResetToken || !user.passwordResetExpires) {
       throw new AuthError('invalid_token', 'Reset token is invalid or expired');
     }
-    if (!safeEqualHex(user.passwordResetToken, tokenHash)) {
-      throw new AuthError('invalid_token');
-    }
     if (user.passwordResetExpires.getTime() < now().getTime()) {
       throw new AuthError('invalid_token', 'Reset token has expired');
     }

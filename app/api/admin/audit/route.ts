@@ -32,7 +32,7 @@ export async function GET(req: Request): Promise<Response> {
     let limit: number | undefined;
     if (limitRaw) {
       const n = Number(limitRaw);
-      if (!Number.isFinite(n) || n <= 0) {
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
         return badRequest('limit must be a positive integer');
       }
       limit = n;
@@ -46,7 +46,6 @@ export async function GET(req: Request): Promise<Response> {
     });
     return ok(page);
   } catch (err) {
-    if (err instanceof AuthError) return toErrorResponse(err);
     return toErrorResponse(err);
   }
 }

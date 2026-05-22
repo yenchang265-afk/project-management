@@ -141,10 +141,24 @@ export function createSearchService(deps: SearchServiceDeps) {
     }
     filters.push(Prisma.sql`"search_tsv" @@ websearch_to_tsquery('english', ${trimmed})`);
 
+    // Cursor-based keyset pagination on (createdAt DESC, id DESC).
+    // When a cursor (issue id from the previous page) is supplied, look up that
+    // row so we can anchor the WHERE clause on its stable (createdAt, id) pair.
+    if (data.cursor) {
+      const anchor = await prisma.issue.findUnique({
+        where: { id: data.cursor },
+        select: { createdAt: true, id: true },
+      });
+      if (anchor) {
+        filters.push(
+          Prisma.sql`("createdAt" < ${anchor.createdAt} OR ("createdAt" = ${anchor.createdAt} AND "id" < ${anchor.id}))`,
+        );
+      }
+    }
+
     const whereSql = Prisma.join(filters, ' AND ');
 
-    // Over-fetch by 1 to compute `hasMore`. Cursor is the trailing id; we
-    // skip it on the next page via offset emulation (rank-stable ordering).
+    // Over-fetch by 1 to compute `hasMore`.
     const rows = (await prisma.$queryRaw(Prisma.sql`
       SELECT "Issue".*,
              ts_rank("search_tsv", websearch_to_tsquery('english', ${trimmed})) AS rank
