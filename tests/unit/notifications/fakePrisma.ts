@@ -211,10 +211,20 @@ export function createFakePrisma() {
     },
   };
 
+  // The post-Phase-5b security review added a `prisma.user.findUnique` guard
+  // before `createNotification` writes a row, to swallow FK violations from
+  // deleted users. Tests don't seed users, so stub a "user always exists"
+  // response.
+  const user = {
+    findUnique: async ({ where }: { where: { id: string } }) =>
+      where.id ? { id: where.id } : null,
+  };
+
   return {
     notification,
     notificationPreference,
     issueWatcher,
+    user,
     _state: { notifications, prefs, watchers },
   };
 }
