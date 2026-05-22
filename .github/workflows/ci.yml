@@ -60,8 +60,8 @@ jobs:
       - name: Prisma migrate deploy
         run: pnpm prisma migrate deploy
 
-      - name: Unit tests (with coverage)
-        run: pnpm test --coverage
+      - name: Unit tests
+        run: pnpm test
 
       - name: Integration tests
         continue-on-error: true
