@@ -93,7 +93,11 @@ export async function handleEmailJob(deps: EmailJobHandlerDeps): Promise<void> {
   const payload = job.payload as { issueKey?: unknown; issueTitle?: unknown };
   const issueKey = typeof payload.issueKey === 'string' ? payload.issueKey : 'PM';
   const issueTitle = typeof payload.issueTitle === 'string' ? payload.issueTitle : null;
-  const subject = issueTitle ? `[${issueKey}] ${issueTitle}` : fallbackSubject(job.kind, issueKey);
+  // Strip CR/LF to prevent SMTP header injection via a crafted issue title.
+  const rawSubject = issueTitle
+    ? `[${issueKey}] ${issueTitle}`
+    : fallbackSubject(job.kind, issueKey);
+  const subject = rawSubject.replace(/[\r\n]+/g, ' ');
   const html = renderHtml(job, issueKey, issueTitle ?? describeKind(job.kind));
 
   await transport.sendMail({

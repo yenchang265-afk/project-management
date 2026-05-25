@@ -94,6 +94,27 @@ export function createFakePrisma() {
       Object.assign(u, data, { updatedAt: new Date() });
       return u;
     },
+    updateMany: async ({
+      where,
+      data,
+    }: {
+      where: UserWhere & { passwordResetToken?: string };
+      data: UserUpdateData;
+    }) => {
+      let count = 0;
+      for (const u of users.values()) {
+        if (where.id && u.id !== where.id) continue;
+        if (where.email && u.email !== where.email) continue;
+        if (
+          where.passwordResetToken !== undefined &&
+          u.passwordResetToken !== where.passwordResetToken
+        )
+          continue;
+        Object.assign(u, data, { updatedAt: new Date() });
+        count += 1;
+      }
+      return { count };
+    },
   };
 
   const orgMembership = {

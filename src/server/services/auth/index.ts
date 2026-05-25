@@ -130,24 +130,36 @@ export function createAuthService(deps: AuthServiceDeps) {
   async function resetPassword(input: ResetInput): Promise<User> {
     const data = parseOrThrow(resetInputSchema, input);
     const tokenHash = hashToken(data.token);
-    const user = await prisma.user.findFirst({
+
+    // Validate existence and expiry first so we can give a meaningful error.
+    const candidate = await prisma.user.findFirst({
       where: { passwordResetToken: tokenHash },
     });
-    if (!user || !user.passwordResetToken || !user.passwordResetExpires) {
+    if (!candidate || !candidate.passwordResetToken || !candidate.passwordResetExpires) {
       throw new AuthError('invalid_token', 'Reset token is invalid or expired');
     }
-    if (user.passwordResetExpires.getTime() < now().getTime()) {
+    if (candidate.passwordResetExpires.getTime() < now().getTime()) {
       throw new AuthError('invalid_token', 'Reset token has expired');
     }
+
     const passwordHash = await bcrypt.hash(data.newPassword, BCRYPT_ROUNDS);
-    return prisma.user.update({
-      where: { id: user.id },
-      data: {
-        passwordHash,
-        passwordResetToken: null,
-        passwordResetExpires: null,
-      },
+
+    // Atomic claim: include the token in the WHERE clause so only one of two
+    // concurrent reset requests can succeed — the second finds token=NULL.
+    const { count } = await prisma.user.updateMany({
+      where: { id: candidate.id, passwordResetToken: tokenHash },
+      data: { passwordHash, passwordResetToken: null, passwordResetExpires: null },
     });
+    if (count === 0) {
+      throw new AuthError('invalid_token', 'Reset token is invalid or expired');
+    }
+
+    return {
+      ...candidate,
+      passwordHash,
+      passwordResetToken: null,
+      passwordResetExpires: null,
+    } as User;
   }
 
   async function getMembershipRole(userId: string): Promise<Role> {

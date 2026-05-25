@@ -445,6 +445,27 @@ export function createFakePrisma() {
       labels.set(l.id, l);
       return l;
     },
+    upsert: async ({
+      where,
+      update: _update,
+      create,
+    }: {
+      where: { projectId_name?: { projectId: string; name: string } };
+      update: Partial<FakeLabel>;
+      create: { projectId: string; name: string; color?: string };
+    }) => {
+      if (where.projectId_name) {
+        for (const l of labels.values()) {
+          if (
+            l.projectId === where.projectId_name.projectId &&
+            l.name === where.projectId_name.name
+          ) {
+            return l;
+          }
+        }
+      }
+      return label.create({ data: create });
+    },
     findMany: async (args: { where?: { projectId?: string; id?: { in?: string[] } } } = {}) => {
       let out = Array.from(labels.values());
       if (args.where?.projectId) out = out.filter((l) => l.projectId === args.where?.projectId);

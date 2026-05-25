@@ -64,10 +64,15 @@ export const reorderInputSchema = z.object({
 });
 export type ReorderInput = z.infer<typeof reorderInputSchema>;
 
-export const startSprintOptionsSchema = z.object({
-  startDate: z.coerce.date().optional(),
-  endDate: z.coerce.date().optional(),
-});
+export const startSprintOptionsSchema = z
+  .object({
+    startDate: z.coerce.date().optional(),
+    endDate: z.coerce.date().optional(),
+  })
+  .refine((v) => !v.startDate || !v.endDate || v.endDate >= v.startDate, {
+    message: 'endDate must be on or after startDate',
+    path: ['endDate'],
+  });
 export type StartSprintOptions = z.infer<typeof startSprintOptionsSchema>;
 
 // ----- helpers -----
@@ -172,6 +177,10 @@ export function createSprintsService(deps: SprintsServiceDeps) {
     const projectKey = await projectKeyForSprint(sprint);
     await resolveProjectAccess(projectKey, 'MEMBER', actor);
 
+    if (sprint.state === 'COMPLETED') {
+      throw new AuthError('invalid_transition', 'Cannot add issues to a completed sprint');
+    }
+
     const issue = await prisma.issue.findUnique({ where: { key: data.issueKey } });
     if (!issue) throw new AuthError('not_found', `Issue ${data.issueKey} not found`);
     if (issue.projectId !== sprint.projectId) {
@@ -216,6 +225,10 @@ export function createSprintsService(deps: SprintsServiceDeps) {
     const sprint = await loadSprintOrThrow(data.sprintId);
     const projectKey = await projectKeyForSprint(sprint);
     await resolveProjectAccess(projectKey, 'MEMBER', actor);
+
+    if (sprint.state === 'COMPLETED') {
+      throw new AuthError('invalid_transition', 'Cannot remove issues from a completed sprint');
+    }
 
     const issue = await prisma.issue.findUnique({ where: { key: data.issueKey } });
     if (!issue) throw new AuthError('not_found', `Issue ${data.issueKey} not found`);
@@ -311,7 +324,11 @@ export function createSprintsService(deps: SprintsServiceDeps) {
         target = beforeRow.rank - RANK_STEP;
         if (target <= 0) {
           await rebalance(sprint.id);
-          return reorderSprintIssue(input, actor);
+          // After rebalance the first row has rank REBALANCE_GAP; place before it
+          // at half that spacing. Using REBALANCE_GAP/2 (> 0) avoids re-entering
+          // the rebalance path, which would otherwise loop forever since the first
+          // row's rank stays at REBALANCE_GAP after every rebalance.
+          target = Math.floor(REBALANCE_GAP / 2);
         }
       } else {
         target = Math.floor((prev.rank + beforeRow.rank) / 2);
@@ -416,10 +433,16 @@ export function createSprintsService(deps: SprintsServiceDeps) {
     }
 
     const completedAt = new Date();
-    const updated = (await prisma.sprint.update({
-      where: { id: sprint.id },
+    // Atomic: guard against two concurrent complete requests — the WHERE state
+    // clause means only one UPDATE will find a matching row.
+    const { count } = await prisma.sprint.updateMany({
+      where: { id: sprint.id, state: 'ACTIVE' },
       data: { state: 'COMPLETED', completedAt },
-    })) as Sprint;
+    });
+    if (count === 0) {
+      throw new AuthError('conflict', 'Sprint was already completed');
+    }
+    const updated = (await prisma.sprint.findUnique({ where: { id: sprint.id } }))! as Sprint;
 
     emit(SPRINT_EVENTS.COMPLETED, {
       sprintId: updated.id,

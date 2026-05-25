@@ -139,14 +139,26 @@ export function createSearchService(deps: SearchServiceDeps) {
         filters.push(Prisma.sql`"assigneeId" = ${aid}`);
       }
     }
+    if (data.filters?.labelNames?.length) {
+      filters.push(
+        Prisma.sql`EXISTS (
+          SELECT 1 FROM "IssueLabel" il
+          JOIN "Label" l ON l."id" = il."labelId"
+          WHERE il."issueId" = "Issue"."id"
+            AND l."name" IN (${Prisma.join(data.filters.labelNames)})
+        )`,
+      );
+    }
     filters.push(Prisma.sql`"search_tsv" @@ websearch_to_tsquery('english', ${trimmed})`);
 
     // Cursor-based keyset pagination on (createdAt DESC, id DESC).
     // When a cursor (issue id from the previous page) is supplied, look up that
     // row so we can anchor the WHERE clause on its stable (createdAt, id) pair.
     if (data.cursor) {
-      const anchor = await prisma.issue.findUnique({
-        where: { id: data.cursor },
+      // Scope cursor lookup to the project so callers can't probe issues from
+      // other projects via a cross-project ID as a timing side-channel.
+      const anchor = await prisma.issue.findFirst({
+        where: { id: data.cursor, projectId: project.id },
         select: { createdAt: true, id: true },
       });
       if (anchor) {

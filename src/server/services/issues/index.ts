@@ -245,24 +245,27 @@ export function createIssuesService(deps: IssuesServiceDeps) {
       await assertProjectMember(project.id, data.assigneeId);
     }
 
-    const number = await nextIssueNumberInternal(project.id, prisma);
-    const key = `${project.key}-${number}`;
-
-    const issue = (await prisma.issue.create({
-      data: {
-        projectId: project.id,
-        number,
-        key,
-        title: data.title,
-        description: data.description ?? null,
-        type: data.type,
-        priority: data.priority ?? 'MEDIUM',
-        status: 'TODO',
-        assigneeId: data.assigneeId ?? null,
-        reporterId: actor.id,
-        dueDate: data.dueDate ?? null,
-        estimate: data.estimate ?? null,
-      },
+    // Wrap counter-increment + issue create in a transaction so a failed
+    // create never leaves the counter permanently ahead of the actual rows.
+    const issue = (await prisma.$transaction(async (tx) => {
+      const number = await nextIssueNumberInternal(project.id, tx);
+      const key = `${project.key}-${number}`;
+      return tx.issue.create({
+        data: {
+          projectId: project.id,
+          number,
+          key,
+          title: data.title,
+          description: data.description ?? null,
+          type: data.type,
+          priority: data.priority ?? 'MEDIUM',
+          status: 'TODO',
+          assigneeId: data.assigneeId ?? null,
+          reporterId: actor.id,
+          dueDate: data.dueDate ?? null,
+          estimate: data.estimate ?? null,
+        },
+      });
     })) as Issue;
 
     if (data.labelNames && data.labelNames.length > 0) {

@@ -288,6 +288,24 @@ export function createFakePrisma() {
       sprints.set(target.id, next);
       return { ...next };
     },
+    updateMany: async ({
+      where,
+      data,
+    }: {
+      where: { id?: string; state?: SprintState };
+      data: Partial<FakeSprint>;
+    }) => {
+      let count = 0;
+      for (const s of sprints.values()) {
+        if (where.id && s.id !== where.id) continue;
+        if (where.state && s.state !== where.state) continue;
+        const next = { ...s, ...data, updatedAt: new Date() } as FakeSprint;
+        if (next.state === 'ACTIVE') enforceActiveSprintUnique(next.projectId, s.id);
+        sprints.set(s.id, next);
+        count += 1;
+      }
+      return { count };
+    },
     findUnique: async ({ where }: { where: { id: string } }) => sprints.get(where.id) ?? null,
     findFirst: async ({
       where,

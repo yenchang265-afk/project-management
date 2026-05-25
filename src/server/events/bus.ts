@@ -26,8 +26,13 @@ export function subscribe(handler: DomainEventHandler): () => void {
 }
 
 export async function publish(event: DomainEvent): Promise<void> {
+  // Redact sensitive fields before logging so tokens never appear in logs.
+  const logPayload =
+    event.type === 'auth.password_reset_requested'
+      ? { ...event.payload, token: '[REDACTED]' }
+      : event.payload;
   // eslint-disable-next-line no-console
-  console.info('[event]', event.type, event.payload);
+  console.info('[event]', event.type, logPayload);
   for (const h of legacyHandlers) {
     await h(event);
   }

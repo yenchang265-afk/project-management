@@ -79,9 +79,10 @@ export function withRateLimit<Ctx>(
 // -- key helpers ---------------------------------------------------------
 
 // Heuristic: read the leftmost address in X-Forwarded-For (Vercel/Cloud
-// providers set this). Falls back to a stable string so unauthenticated
-// dev requests still get bucketed.
-export function clientIp(req: Request): string | null {
+// providers set this). Falls back to 'unknown' so unauthenticated requests
+// behind proxies that strip IP headers still get rate-limited under a shared
+// bucket rather than bypassing the limiter.
+export function clientIp(req: Request): string {
   const xff = req.headers.get('x-forwarded-for');
   if (xff) {
     const first = xff.split(',')[0]?.trim();
@@ -89,13 +90,11 @@ export function clientIp(req: Request): string | null {
   }
   const real = req.headers.get('x-real-ip');
   if (real) return real;
-  return null;
+  return 'unknown';
 }
 
 export const authIpKey = (ctx: RateLimitContext): string => {
-  const ip = clientIp(ctx.req);
-  if (!ip) throw new Error('cannot determine client IP');
-  return `auth:ip:${ip}`;
+  return `auth:ip:${clientIp(ctx.req)}`;
 };
 
 // userId-aware write key. If we can't determine the user, fall back to IP so
@@ -106,9 +105,7 @@ export async function writeUserKey(ctx: RateLimitContext): Promise<string> {
   const session = await auth();
   const userId = session?.user?.id;
   if (userId) return `write:user:${userId}`;
-  const ip = clientIp(ctx.req);
-  if (!ip) throw new Error('cannot determine client IP');
-  return `write:ip:${ip}`;
+  return `write:ip:${clientIp(ctx.req)}`;
 }
 
 // -- canonical limits ---------------------------------------------------
