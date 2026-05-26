@@ -127,8 +127,16 @@ export type AttachFileInput = z.infer<typeof attachFileInputSchema>;
 // ----- constants -----
 
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-export const ALLOWED_MIME_PREFIXES = ['image/', 'text/'];
-export const ALLOWED_MIME_EXACT = ['application/pdf', 'application/zip'];
+// text/html is intentionally excluded: uploaded HTML served from S3 could be
+// rendered inline by the browser, enabling stored XSS via presigned GET URLs.
+export const ALLOWED_MIME_PREFIXES = ['image/'];
+export const ALLOWED_MIME_EXACT = [
+  'application/pdf',
+  'application/zip',
+  'text/plain',
+  'text/csv',
+  'text/markdown',
+];
 
 function isAllowedMime(mime: string): boolean {
   return (
@@ -220,12 +228,16 @@ export function createIssuesService(deps: IssuesServiceDeps) {
     return result.lastNumber;
   }
 
-  async function resolveOrCreateLabels(projectId: string, names: string[]): Promise<Label[]> {
+  async function resolveOrCreateLabels(
+    projectId: string,
+    names: string[],
+    db: { label: PrismaClient['label']; issueLabel: PrismaClient['issueLabel'] } = prisma,
+  ): Promise<Label[]> {
     const out: Label[] = [];
     for (const raw of names) {
       const name = raw.trim();
       if (!name) continue;
-      const label = (await prisma.label.upsert({
+      const label = (await db.label.upsert({
         where: { projectId_name: { projectId, name } },
         update: {},
         create: { projectId, name, color: '#999999' },
@@ -245,12 +257,12 @@ export function createIssuesService(deps: IssuesServiceDeps) {
       await assertProjectMember(project.id, data.assigneeId);
     }
 
-    // Wrap counter-increment + issue create in a transaction so a failed
-    // create never leaves the counter permanently ahead of the actual rows.
+    // Wrap counter-increment + issue create + label association in a single
+    // transaction so a failure in any step rolls back all writes atomically.
     const issue = (await prisma.$transaction(async (tx) => {
       const number = await nextIssueNumberInternal(project.id, tx);
       const key = `${project.key}-${number}`;
-      return tx.issue.create({
+      const created = (await tx.issue.create({
         data: {
           projectId: project.id,
           number,
@@ -265,15 +277,19 @@ export function createIssuesService(deps: IssuesServiceDeps) {
           dueDate: data.dueDate ?? null,
           estimate: data.estimate ?? null,
         },
-      });
-    })) as Issue;
-
-    if (data.labelNames && data.labelNames.length > 0) {
-      const labels = await resolveOrCreateLabels(project.id, data.labelNames);
-      for (const label of labels) {
-        await prisma.issueLabel.create({ data: { issueId: issue.id, labelId: label.id } });
+      })) as Issue;
+      if (data.labelNames && data.labelNames.length > 0) {
+        const labels = await resolveOrCreateLabels(
+          project.id,
+          data.labelNames,
+          tx as unknown as { label: PrismaClient['label']; issueLabel: PrismaClient['issueLabel'] },
+        );
+        for (const label of labels) {
+          await tx.issueLabel.create({ data: { issueId: created.id, labelId: label.id } });
+        }
       }
-    }
+      return created;
+    })) as Issue;
 
     await prisma.activityLogEntry.create({
       data: {
@@ -670,8 +686,9 @@ export function createIssuesService(deps: IssuesServiceDeps) {
     const to = (await prisma.issue.findUnique({ where: { key: data.toKey } })) as Issue | null;
     if (!from || !to) throw new AuthError('not_found', 'One or both issues not found');
 
-    // dedupe (including symmetric RELATES_TO)
-    const isSymmetric = data.type === 'RELATES_TO';
+    // dedupe — RELATES_TO and DUPLICATES are symmetric (A relates-to B ≡ B
+    // relates-to A; A duplicates B ≡ B duplicates A). BLOCKS is directional.
+    const isSymmetric = data.type === 'RELATES_TO' || data.type === 'DUPLICATES';
     const existing = (await prisma.issueLink.findFirst({
       where: isSymmetric
         ? {
@@ -761,6 +778,9 @@ export function createIssuesService(deps: IssuesServiceDeps) {
     if (!issue) throw new AuthError('not_found', `Issue ${issueKey} not found`);
 
     const storageKey = buildStorageKey(project.id, issue.id, data.filename);
+    // Get the upload URL before writing to the DB. If presignPut fails, no
+    // orphaned Attachment row is left behind.
+    const uploadUrl = await presignPut(storageKey, data.mimeType);
     const attachment = (await prisma.attachment.create({
       data: {
         issueId: issue.id,
@@ -771,8 +791,6 @@ export function createIssuesService(deps: IssuesServiceDeps) {
         storageKey,
       },
     })) as Attachment;
-
-    const uploadUrl = await presignPut(storageKey, data.mimeType);
 
     await prisma.activityLogEntry.create({
       data: {
@@ -804,7 +822,7 @@ export function createIssuesService(deps: IssuesServiceDeps) {
     if (!issue) throw new AuthError('not_found', 'Parent issue missing');
     const projectKey = projectKeyFromIssueKey(issue.key);
     await resolveProjectAccess(projectKey, 'VIEWER', actor);
-    return presignGet(att.storageKey);
+    return presignGet(att.storageKey, att.filename);
   }
 
   async function removeAttachment(attachmentId: string, actor: Actor): Promise<void> {

@@ -5,6 +5,7 @@ import { requireUser } from '@/server/auth/guards';
 import { prisma } from '@/server/db';
 import { createNotificationService } from '@/server/services/notifications';
 import { badRequest, ok, toErrorResponse } from '@/lib/http';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 
 export async function GET(): Promise<Response> {
   try {
@@ -17,7 +18,7 @@ export async function GET(): Promise<Response> {
   }
 }
 
-export async function PATCH(req: Request): Promise<Response> {
+async function patchHandler(req: Request): Promise<Response> {
   let body: unknown;
   try {
     body = await req.json();
@@ -36,3 +37,5 @@ export async function PATCH(req: Request): Promise<Response> {
     return toErrorResponse(err);
   }
 }
+
+export const PATCH = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, patchHandler);

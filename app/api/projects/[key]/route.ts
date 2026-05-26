@@ -61,8 +61,10 @@ async function patchHandler(
       {
         name: input.name !== undefined ? String(input.name) : undefined,
         description:
-          input.description !== undefined && input.description !== null
-            ? String(input.description)
+          input.description !== undefined
+            ? input.description === null
+              ? null
+              : String(input.description)
             : undefined,
       },
       { id: user.id, role },

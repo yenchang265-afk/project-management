@@ -5,6 +5,7 @@ import { requireUser } from '@/server/auth/guards';
 import { prisma } from '@/server/db';
 import { createSavedFiltersService } from '@/server/services/savedFilters';
 import { created, ok, toErrorResponse, badRequest } from '@/lib/http';
+import { WRITE_LIMIT, withRateLimit, writeUserKey } from '@/lib/rateLimit/middleware';
 
 export async function GET(req: Request): Promise<Response> {
   try {
@@ -22,7 +23,7 @@ export async function GET(req: Request): Promise<Response> {
   }
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function postHandler(req: Request): Promise<Response> {
   let body: unknown;
   try {
     body = await req.json();
@@ -41,3 +42,5 @@ export async function POST(req: Request): Promise<Response> {
     return toErrorResponse(err);
   }
 }
+
+export const POST = withRateLimit({ keyFn: writeUserKey, limit: WRITE_LIMIT }, postHandler);

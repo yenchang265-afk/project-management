@@ -154,6 +154,10 @@ export function createAuthService(deps: AuthServiceDeps) {
       throw new AuthError('invalid_token', 'Reset token is invalid or expired');
     }
 
+    // Invalidate all existing sessions so prior sessions (including any that
+    // were hijacked) cannot be used after a password reset.
+    await prisma.session.deleteMany({ where: { userId: candidate.id } });
+
     return {
       ...candidate,
       passwordHash,

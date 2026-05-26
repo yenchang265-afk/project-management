@@ -136,10 +136,25 @@ export function createFakePrisma() {
     },
   };
 
+  const sessions = new Map<string, { id: string; userId: string }>();
+  const session = {
+    deleteMany: async ({ where }: { where: { userId: string } }) => {
+      let count = 0;
+      for (const [id, s] of sessions.entries()) {
+        if (s.userId === where.userId) {
+          sessions.delete(id);
+          count += 1;
+        }
+      }
+      return { count };
+    },
+  };
+
   return {
     user,
     orgMembership,
-    _state: { users, memberships },
+    session,
+    _state: { users, memberships, sessions },
   };
 }
 

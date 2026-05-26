@@ -100,12 +100,18 @@ export async function handleEmailJob(deps: EmailJobHandlerDeps): Promise<void> {
   const subject = rawSubject.replace(/[\r\n]+/g, ' ');
   const html = renderHtml(job, issueKey, issueTitle ?? describeKind(job.kind));
 
-  await transport.sendMail({
-    from,
-    to: recipient.email,
-    subject,
-    html,
-  });
+  try {
+    await transport.sendMail({
+      from,
+      to: recipient.email,
+      subject,
+      html,
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[email-worker] sendMail failed', { userId: job.userId, kind: job.kind }, err);
+    throw err;
+  }
 }
 
 // Real-world registration. Called by jobs/bootstrap (or the in-process dev

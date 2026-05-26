@@ -85,4 +85,5 @@ export function emit<T = unknown>(event: string, payload: T): void {
 
 export function reset(): void {
   handlers.clear();
+  legacyHandlers.clear();
 }

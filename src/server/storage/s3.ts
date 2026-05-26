@@ -74,15 +74,28 @@ export async function presignPut(
   return getSignedUrl(c as S3Client, cmd, { expiresIn: expiresInSec });
 }
 
-export async function presignGet(key: string, expiresInSec = 900): Promise<string> {
+export async function presignGet(
+  key: string,
+  filename?: string,
+  expiresInSec = 900,
+): Promise<string> {
   const c = getS3Client();
   const maybeTest = c as PresignableClient & {
-    presignGet?: (key: string, exp: number) => Promise<string>;
+    presignGet?: (key: string, fn: string | undefined, exp: number) => Promise<string>;
   };
   if (typeof maybeTest.presignGet === 'function') {
-    return maybeTest.presignGet(key, expiresInSec);
+    return maybeTest.presignGet(key, filename, expiresInSec);
   }
-  const cmd = new GetObjectCommand({ Bucket: getBucket(), Key: key });
+  // ResponseContentDisposition forces a download rather than inline rendering,
+  // preventing uploaded HTML/SVG from being executed in the browser.
+  const disposition = filename
+    ? `attachment; filename="${filename.replace(/"/g, '_')}"`
+    : 'attachment';
+  const cmd = new GetObjectCommand({
+    Bucket: getBucket(),
+    Key: key,
+    ResponseContentDisposition: disposition,
+  });
   return getSignedUrl(c as S3Client, cmd, { expiresIn: expiresInSec });
 }
 
