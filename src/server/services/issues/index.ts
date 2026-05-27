@@ -117,12 +117,27 @@ export const linkIssuesInputSchema = z.object({
 });
 export type LinkIssuesInput = z.infer<typeof linkIssuesInputSchema>;
 
-export const attachFileInputSchema = z.object({
-  filename: z.string().trim().min(1).max(255),
-  mimeType: z.string().trim().min(1).max(255),
-  size: z.number().int().positive(),
-});
+export const attachFileInputSchema = z
+  .object({
+    filename: z.string().trim().min(1).max(255),
+    // Validated at schema level so callers that bypass the service layer
+    // (e.g. direct route-handler tests) still can't supply text/html or
+    // other types that browsers render inline (stored-XSS via presigned GET).
+    mimeType: z.string().trim().min(1).max(255),
+    size: z.number().int().positive(),
+  })
+  .refine((v) => isAllowedMimeStatic(v.mimeType), {
+    message: 'Unsupported MIME type',
+    path: ['mimeType'],
+  });
 export type AttachFileInput = z.infer<typeof attachFileInputSchema>;
+
+// Exported so the schema refine above can reference it before the full
+// isAllowedMime() function is defined later in the file.
+function isAllowedMimeStatic(mime: string): boolean {
+  const EXACT = ['application/pdf', 'application/zip', 'text/plain', 'text/csv', 'text/markdown'];
+  return EXACT.includes(mime) || mime.startsWith('image/');
+}
 
 // ----- constants -----
 

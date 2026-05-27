@@ -202,9 +202,20 @@ export function createSprintsService(deps: SprintsServiceDeps) {
     });
     const nextRank = (existing[0]?.rank ?? 0) + RANK_STEP;
 
-    const row = (await prisma.sprintIssue.create({
-      data: { sprintId: sprint.id, issueId: issue.id, rank: nextRank },
-    })) as SprintIssue;
+    let row: SprintIssue;
+    try {
+      row = (await prisma.sprintIssue.create({
+        data: { sprintId: sprint.id, issueId: issue.id, rank: nextRank },
+      })) as SprintIssue;
+    } catch (err) {
+      // Two concurrent requests can both pass the findFirst check above and
+      // then race to insert. The composite PK (sprintId, issueId) prevents a
+      // duplicate row; surface this as a clean 409 instead of an unhandled 500.
+      if ((err as { code?: string }).code === 'P2002') {
+        throw new AuthError('conflict', 'Issue is already in this sprint');
+      }
+      throw err;
+    }
 
     emit(SPRINT_EVENTS.ISSUE_ADDED, {
       sprintId: sprint.id,
@@ -253,28 +264,32 @@ export function createSprintsService(deps: SprintsServiceDeps) {
   // ---------------------------- reorderSprintIssue -------------------------
 
   async function rebalance(sprintId: string): Promise<void> {
-    const rows = await prisma.sprintIssue.findMany({
-      where: { sprintId },
-      orderBy: { rank: 'asc' },
+    // Run inside a transaction so a concurrent reorder cannot read partially-
+    // updated (negative-phase) ranks and compute an incorrect midpoint rank.
+    await prisma.$transaction(async (tx) => {
+      const rows = await tx.sprintIssue.findMany({
+        where: { sprintId },
+        orderBy: { rank: 'asc' },
+      });
+      // Two-phase to avoid (sprintId, rank) collisions: push everything to
+      // negative space first, then back to the target ranks.
+      let neg = -REBALANCE_GAP * rows.length;
+      for (const r of rows) {
+        await tx.sprintIssue.update({
+          where: { sprintId_issueId: { sprintId: r.sprintId, issueId: r.issueId } },
+          data: { rank: neg },
+        });
+        neg += REBALANCE_GAP;
+      }
+      let target = REBALANCE_GAP;
+      for (const r of rows) {
+        await tx.sprintIssue.update({
+          where: { sprintId_issueId: { sprintId: r.sprintId, issueId: r.issueId } },
+          data: { rank: target },
+        });
+        target += REBALANCE_GAP;
+      }
     });
-    // Two-phase to avoid (sprintId, rank) collisions: push everything to negative
-    // space first, then back to the target ranks.
-    let neg = -REBALANCE_GAP * rows.length;
-    for (const r of rows) {
-      await prisma.sprintIssue.update({
-        where: { sprintId_issueId: { sprintId: r.sprintId, issueId: r.issueId } },
-        data: { rank: neg },
-      });
-      neg += REBALANCE_GAP;
-    }
-    let target = REBALANCE_GAP;
-    for (const r of rows) {
-      await prisma.sprintIssue.update({
-        where: { sprintId_issueId: { sprintId: r.sprintId, issueId: r.issueId } },
-        data: { rank: target },
-      });
-      target += REBALANCE_GAP;
-    }
   }
 
   async function reorderSprintIssue(input: ReorderInput, actor: Actor): Promise<SprintIssue> {
@@ -414,35 +429,41 @@ export function createSprintsService(deps: SprintsServiceDeps) {
       throw new AuthError('invalid_transition', `Cannot complete sprint in state ${sprint.state}`);
     }
 
-    // Move incomplete issues back to backlog: delete their SprintIssue rows.
-    const sprintIssues = (await prisma.sprintIssue.findMany({
-      where: { sprintId: sprint.id },
-    })) as SprintIssue[];
-    const issueIds = sprintIssues.map((s) => s.issueId);
-    const issues = issueIds.length
-      ? await prisma.issue.findMany({ where: { id: { in: issueIds } } })
-      : [];
-    const movedBack: string[] = [];
-    for (const it of issues) {
-      if (it.status !== 'DONE') movedBack.push(it.id);
-    }
-    if (movedBack.length > 0) {
-      await prisma.sprintIssue.deleteMany({
-        where: { sprintId: sprint.id, issueId: { in: movedBack } },
-      });
-    }
-
+    // Wrap the backlog-removal and state change in a single transaction so
+    // a concurrent complete request cannot leave incomplete issues deleted
+    // while the sprint state update fails (or vice-versa).
     const completedAt = new Date();
-    // Atomic: guard against two concurrent complete requests — the WHERE state
-    // clause means only one UPDATE will find a matching row.
-    const { count } = await prisma.sprint.updateMany({
-      where: { id: sprint.id, state: 'ACTIVE' },
-      data: { state: 'COMPLETED', completedAt },
+    const { movedBack, updated } = await prisma.$transaction(async (tx) => {
+      // Move incomplete issues back to backlog: delete their SprintIssue rows.
+      const sprintIssues = (await tx.sprintIssue.findMany({
+        where: { sprintId: sprint.id },
+      })) as SprintIssue[];
+      const issueIds = sprintIssues.map((s) => s.issueId);
+      const issues = issueIds.length
+        ? await tx.issue.findMany({ where: { id: { in: issueIds } } })
+        : [];
+      const moved: string[] = [];
+      for (const it of issues) {
+        if (it.status !== 'DONE') moved.push(it.id);
+      }
+      if (moved.length > 0) {
+        await tx.sprintIssue.deleteMany({
+          where: { sprintId: sprint.id, issueId: { in: moved } },
+        });
+      }
+
+      // Atomic: guard against two concurrent complete requests — the WHERE
+      // state clause means only one UPDATE will find a matching row.
+      const { count } = await tx.sprint.updateMany({
+        where: { id: sprint.id, state: 'ACTIVE' },
+        data: { state: 'COMPLETED', completedAt },
+      });
+      if (count === 0) {
+        throw new AuthError('conflict', 'Sprint was already completed');
+      }
+      const txUpdated = (await tx.sprint.findUnique({ where: { id: sprint.id } }))! as Sprint;
+      return { movedBack: moved, updated: txUpdated };
     });
-    if (count === 0) {
-      throw new AuthError('conflict', 'Sprint was already completed');
-    }
-    const updated = (await prisma.sprint.findUnique({ where: { id: sprint.id } }))! as Sprint;
 
     emit(SPRINT_EVENTS.COMPLETED, {
       sprintId: updated.id,
