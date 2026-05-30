@@ -1,7 +1,7 @@
 // Identity/auth domain service. Keep all password + token handling here so
 // route handlers stay thin and the rules are unit-testable without a DB.
 
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import type { PrismaClient, Role, User } from '@prisma/client';
@@ -48,10 +48,10 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function safeEqualHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
-}
+// Token comparison safety note: the raw token is hashed with SHA-256 before
+// being stored or compared. Any timing information observable via a WHERE
+// clause lookup therefore reveals only bits of the SHA-256 digest; recovering
+// the original token from such information is computationally infeasible.
 
 export type AuthServiceDeps = {
   prisma: PrismaClient;

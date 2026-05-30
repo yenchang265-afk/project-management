@@ -117,18 +117,14 @@ export const linkIssuesInputSchema = z.object({
 });
 export type LinkIssuesInput = z.infer<typeof linkIssuesInputSchema>;
 
-export const attachFileInputSchema = z.object({
-  filename: z.string().trim().min(1).max(255),
-  mimeType: z.string().trim().min(1).max(255),
-  size: z.number().int().positive(),
-});
-export type AttachFileInput = z.infer<typeof attachFileInputSchema>;
-
 // ----- constants -----
 
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-// text/html is intentionally excluded: uploaded HTML served from S3 could be
-// rendered inline by the browser, enabling stored XSS via presigned GET URLs.
+// text/html and image/svg+xml are intentionally excluded: HTML and SVG served
+// from S3 can execute JavaScript when rendered inline by the browser, enabling
+// stored XSS via presigned GET URLs. SVG is XML-based and supports <script>,
+// onload= handlers, and javascript: hrefs regardless of Content-Disposition.
+export const ALLOWED_MIME_BLOCKED = ['image/svg+xml', 'image/svg'];
 export const ALLOWED_MIME_PREFIXES = ['image/'];
 export const ALLOWED_MIME_EXACT = [
   'application/pdf',
@@ -139,11 +135,28 @@ export const ALLOWED_MIME_EXACT = [
 ];
 
 function isAllowedMime(mime: string): boolean {
+  if (ALLOWED_MIME_BLOCKED.includes(mime)) return false;
   return (
     ALLOWED_MIME_EXACT.includes(mime) ||
     ALLOWED_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix))
   );
 }
+
+export const attachFileInputSchema = z
+  .object({
+    filename: z.string().trim().min(1).max(255),
+    // Validated at schema level so callers that bypass the service layer
+    // (e.g. direct route-handler tests) still can't supply text/html,
+    // image/svg+xml, or other types browsers render as active content
+    // (stored XSS via presigned GET URLs).
+    mimeType: z.string().trim().min(1).max(255),
+    size: z.number().int().positive(),
+  })
+  .refine((v) => isAllowedMime(v.mimeType), {
+    message: 'Unsupported MIME type',
+    path: ['mimeType'],
+  });
+export type AttachFileInput = z.infer<typeof attachFileInputSchema>;
 
 // ----- utilities -----
 

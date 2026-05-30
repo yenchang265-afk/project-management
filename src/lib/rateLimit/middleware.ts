@@ -9,6 +9,8 @@
 // On denial we return 429 with a Retry-After header. The middleware never
 // mutates the underlying handler — it just gates the call.
 
+import { isIP } from 'node:net';
+
 import { prisma } from '@/server/db';
 
 import { consume } from './consume';
@@ -82,14 +84,17 @@ export function withRateLimit<Ctx>(
 // providers set this). Falls back to 'unknown' so unauthenticated requests
 // behind proxies that strip IP headers still get rate-limited under a shared
 // bucket rather than bypassing the limiter.
+// node:net isIP() returns 4 (IPv4), 6 (IPv6), or 0 (invalid) — only accept
+// real IPs so attackers cannot inject arbitrary strings that each start with
+// a full token bucket, bypassing the rate limiter.
 export function clientIp(req: Request): string {
   const xff = req.headers.get('x-forwarded-for');
   if (xff) {
     const first = xff.split(',')[0]?.trim();
-    if (first) return first;
+    if (first && isIP(first) !== 0) return first;
   }
   const real = req.headers.get('x-real-ip');
-  if (real) return real;
+  if (real && isIP(real) !== 0) return real;
   return 'unknown';
 }
 
