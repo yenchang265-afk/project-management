@@ -9,6 +9,8 @@
 // On denial we return 429 with a Retry-After header. The middleware never
 // mutates the underlying handler — it just gates the call.
 
+import { isIP } from 'node:net';
+
 import { prisma } from '@/server/db';
 
 import { consume } from './consume';
@@ -78,29 +80,21 @@ export function withRateLimit<Ctx>(
 
 // -- key helpers ---------------------------------------------------------
 
-// Simple structural validation: accept only strings that look like IPv4,
-// IPv6, or IPv4-mapped IPv6. Rejecting arbitrary header values prevents an
-// attacker from injecting unique fake "IPs" that each start with a full
-// token bucket, effectively bypassing the rate limiter.
-const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
-const IPV6_RE = /^[0-9a-fA-F:]+$/; // coarse but sufficient for key generation
-
-function isValidIp(value: string): boolean {
-  return IPV4_RE.test(value) || IPV6_RE.test(value);
-}
-
 // Heuristic: read the leftmost address in X-Forwarded-For (Vercel/Cloud
 // providers set this). Falls back to 'unknown' so unauthenticated requests
 // behind proxies that strip IP headers still get rate-limited under a shared
 // bucket rather than bypassing the limiter.
+// node:net isIP() returns 4 (IPv4), 6 (IPv6), or 0 (invalid) — only accept
+// real IPs so attackers cannot inject arbitrary strings that each start with
+// a full token bucket, bypassing the rate limiter.
 export function clientIp(req: Request): string {
   const xff = req.headers.get('x-forwarded-for');
   if (xff) {
     const first = xff.split(',')[0]?.trim();
-    if (first && isValidIp(first)) return first;
+    if (first && isIP(first) !== 0) return first;
   }
   const real = req.headers.get('x-real-ip');
-  if (real && isValidIp(real)) return real;
+  if (real && isIP(real) !== 0) return real;
   return 'unknown';
 }
 

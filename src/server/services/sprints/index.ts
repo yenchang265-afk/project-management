@@ -208,10 +208,17 @@ export function createSprintsService(deps: SprintsServiceDeps) {
         data: { sprintId: sprint.id, issueId: issue.id, rank: nextRank },
       })) as SprintIssue;
     } catch (err) {
-      // Two concurrent requests can both pass the findFirst check above and
-      // then race to insert. The composite PK (sprintId, issueId) prevents a
-      // duplicate row; surface this as a clean 409 instead of an unhandled 500.
       if ((err as { code?: string }).code === 'P2002') {
+        // Distinguish which constraint fired so callers get an accurate message.
+        // P2002 can come from the composite PK (sprintId, issueId) on a
+        // concurrent duplicate-add race, or from the unique (sprintId, rank)
+        // index on a concurrent rank collision.
+        const target = (err as { meta?: { target?: string[] } }).meta?.target ?? [];
+        if (target.includes('rank')) {
+          // Rank collision: retry path — caller should re-add after a brief
+          // delay. Surface as a retriable conflict rather than "already added".
+          throw new AuthError('conflict', 'Rank collision — please retry');
+        }
         throw new AuthError('conflict', 'Issue is already in this sprint');
       }
       throw err;

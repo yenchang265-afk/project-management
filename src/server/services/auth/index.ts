@@ -48,11 +48,10 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-// Token comparison safety note: we do NOT compare the raw token in
-// JavaScript. Instead, we hash it with SHA-256 first and pass the hash as
-// a Prisma WHERE clause parameter. Postgres finds the row (or not) via a
-// constant-time index lookup on the fixed-length hex digest, so there is no
-// observable timing channel on the original secret.
+// Token comparison safety note: the raw token is hashed with SHA-256 before
+// being stored or compared. Any timing information observable via a WHERE
+// clause lookup therefore reveals only bits of the SHA-256 digest; recovering
+// the original token from such information is computationally infeasible.
 
 export type AuthServiceDeps = {
   prisma: PrismaClient;
