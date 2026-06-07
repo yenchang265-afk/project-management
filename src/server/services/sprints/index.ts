@@ -258,23 +258,24 @@ export function createSprintsService(deps: SprintsServiceDeps) {
       orderBy: { rank: 'asc' },
     });
     // Two-phase to avoid (sprintId, rank) collisions: push everything to negative
-    // space first, then back to the target ranks.
-    let neg = -REBALANCE_GAP * rows.length;
-    for (const r of rows) {
-      await prisma.sprintIssue.update({
-        where: { sprintId_issueId: { sprintId: r.sprintId, issueId: r.issueId } },
-        data: { rank: neg },
-      });
-      neg += REBALANCE_GAP;
-    }
-    let target = REBALANCE_GAP;
-    for (const r of rows) {
-      await prisma.sprintIssue.update({
-        where: { sprintId_issueId: { sprintId: r.sprintId, issueId: r.issueId } },
-        data: { rank: target },
-      });
-      target += REBALANCE_GAP;
-    }
+    // space first, then back to the target ranks. Both phases run inside a single
+    // transaction so concurrent writers never observe partial ranks.
+    await prisma.$transaction(async (tx) => {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i]!;
+        await tx.sprintIssue.update({
+          where: { sprintId_issueId: { sprintId: r.sprintId, issueId: r.issueId } },
+          data: { rank: -REBALANCE_GAP * (rows.length - i) },
+        });
+      }
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i]!;
+        await tx.sprintIssue.update({
+          where: { sprintId_issueId: { sprintId: r.sprintId, issueId: r.issueId } },
+          data: { rank: REBALANCE_GAP * (i + 1) },
+        });
+      }
+    });
   }
 
   async function reorderSprintIssue(input: ReorderInput, actor: Actor): Promise<SprintIssue> {

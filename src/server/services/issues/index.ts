@@ -233,18 +233,17 @@ export function createIssuesService(deps: IssuesServiceDeps) {
     names: string[],
     db: { label: PrismaClient['label']; issueLabel: PrismaClient['issueLabel'] } = prisma,
   ): Promise<Label[]> {
-    const out: Label[] = [];
-    for (const raw of names) {
-      const name = raw.trim();
-      if (!name) continue;
-      const label = (await db.label.upsert({
-        where: { projectId_name: { projectId, name } },
-        update: {},
-        create: { projectId, name, color: '#999999' },
-      })) as Label;
-      out.push(label);
-    }
-    return out;
+    const validNames = names.map((n) => n.trim()).filter(Boolean);
+    return Promise.all(
+      validNames.map(
+        (name) =>
+          db.label.upsert({
+            where: { projectId_name: { projectId, name } },
+            update: {},
+            create: { projectId, name, color: '#999999' },
+          }) as Promise<Label>,
+      ),
+    );
   }
 
   // -------- createIssue --------

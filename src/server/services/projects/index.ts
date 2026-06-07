@@ -75,21 +75,23 @@ export function createProjectsService(deps: ProjectsServiceDeps) {
     }
     const data = parseOrThrow(createProjectInputSchema, input);
     try {
-      const project = await prisma.project.create({
-        data: {
-          key: data.key,
-          name: data.name,
-          description: data.description ?? null,
-          leadId: data.leadId,
-        },
+      return await prisma.$transaction(async (tx) => {
+        const project = await tx.project.create({
+          data: {
+            key: data.key,
+            name: data.name,
+            description: data.description ?? null,
+            leadId: data.leadId,
+          },
+        });
+        await tx.projectMember.create({
+          data: { projectId: project.id, userId: data.leadId, role: 'LEAD' },
+        });
+        await tx.issueCounter.create({
+          data: { projectId: project.id, lastNumber: 0 },
+        });
+        return project;
       });
-      await prisma.projectMember.create({
-        data: { projectId: project.id, userId: data.leadId, role: 'LEAD' },
-      });
-      await prisma.issueCounter.create({
-        data: { projectId: project.id, lastNumber: 0 },
-      });
-      return project;
     } catch (err) {
       if ((err as { code?: string }).code === 'P2002') {
         throw new AuthError('duplicate_key', `Project key "${data.key}" is already taken`);
