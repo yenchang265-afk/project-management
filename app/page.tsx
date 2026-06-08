@@ -1,13 +1,13 @@
-// Root redirect. Authenticated users land on /dashboard; everyone else on
-// /login. Server component so the redirect happens before any HTML ships.
+"use client";
 
-import { redirect } from 'next/navigation';
+import { useEffect, useState } from "react";
+import App from "@/components/App";
 
-import { auth } from '@/server/auth';
-
-export const dynamic = 'force-dynamic';
-
-export default async function HomePage(): Promise<never> {
-  const session = await auth();
-  redirect(session ? '/dashboard' : '/login');
+/* Seed timestamps + relative times derive from Date.now(), so the tree only
+   renders on the client to avoid SSR hydration mismatches. */
+export default function Page() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return <App />;
 }
