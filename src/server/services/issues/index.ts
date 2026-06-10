@@ -233,7 +233,7 @@ export function createIssuesService(deps: IssuesServiceDeps) {
     names: string[],
     db: { label: PrismaClient['label']; issueLabel: PrismaClient['issueLabel'] } = prisma,
   ): Promise<Label[]> {
-    const validNames = names.map((n) => n.trim()).filter(Boolean);
+    const validNames = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
     return Promise.all(
       validNames.map(
         (name) =>

@@ -253,14 +253,16 @@ export function createSprintsService(deps: SprintsServiceDeps) {
   // ---------------------------- reorderSprintIssue -------------------------
 
   async function rebalance(sprintId: string): Promise<void> {
-    const rows = await prisma.sprintIssue.findMany({
-      where: { sprintId },
-      orderBy: { rank: 'asc' },
-    });
     // Two-phase to avoid (sprintId, rank) collisions: push everything to negative
     // space first, then back to the target ranks. Both phases run inside a single
-    // transaction so concurrent writers never observe partial ranks.
+    // transaction so concurrent writers never observe partial ranks, and the
+    // row fetch is inside the transaction so concurrent deletes can't produce
+    // stale update targets.
     await prisma.$transaction(async (tx) => {
+      const rows = await tx.sprintIssue.findMany({
+        where: { sprintId },
+        orderBy: { rank: 'asc' },
+      });
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i]!;
         await tx.sprintIssue.update({
