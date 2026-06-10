@@ -54,11 +54,13 @@ export function buildSeed(now: number): SeedData {
   ITEMS.push(item(
     { id: "PAY-412", title: "Apple Pay at checkout", area: "Payments", priority: "High", parent: null,
       type: "feature", stakeholders: roster(PM, DEV, [QAROLE, SECROLE]), workItems: [
-        { id: "PAY-418", type: "story", title: "Render Apple Pay button on checkout", state: "todo",        assignee: DEV },
-        { id: "PAY-419", type: "task",  title: "Integrate PassKit payment sheet",     state: "in_progress", assignee: DEV },
-        { id: "PAY-420", type: "task",  title: "Server: validate merchant session",   state: "in_progress", assignee: DEV2 },
-        { id: "PAY-421", type: "bug",   title: "Sandbox token expires after 5 minutes", state: "blocked",   assignee: DEV2 },
-        { id: "PAY-423", type: "task",  title: "Threat-model sign-off document",        state: "todo",      assignee: PM },
+        { id: "PAY-418", type: "story", title: "Render Apple Pay button on checkout", state: "todo",        assignee: DEV,  phase: "build",     sprint: "Sprint 24" },
+        { id: "PAY-419", type: "task",  title: "Integrate PassKit payment sheet",     state: "in_progress", assignee: DEV,  phase: "build",     sprint: "Sprint 24" },
+        { id: "PAY-420", type: "task",  title: "Server: validate merchant session",   state: "in_progress", assignee: DEV2, phase: "build",     sprint: "Sprint 24",
+          links: [{ type: "blocks", target: "PAY-419" }] },
+        { id: "PAY-421", type: "bug",   title: "Sandbox token expires after 5 minutes", state: "blocked",   assignee: DEV2, phase: "build",
+          links: [{ type: "relates", target: "PAY-420" }] },
+        { id: "PAY-423", type: "task",  title: "Threat-model sign-off document",        state: "todo",      assignee: PM,   phase: "discovery", sprint: "Sprint 24" },
       ] },
     [
       [9,   "CREATE",         PM,  "PM",  { to: "backlog" }],
@@ -78,11 +80,12 @@ export function buildSeed(now: number): SeedData {
   ITEMS.push(item(
     { id: "SEARCH-220", title: "Typeahead ranking v2", area: "Search", priority: "Medium", parent: null,
       type: "feature", stakeholders: roster(PM, DEV2, [QAROLE, SECROLE]), workItems: [
-        { id: "SEARCH-224", type: "story", title: "Wire new ranking model into typeahead", state: "done",        assignee: DEV },
-        { id: "SEARCH-225", type: "task",  title: "Feature flag + staged rollout",         state: "in_progress", assignee: DEV },
-        { id: "SEARCH-226", type: "bug",   title: "Race condition in cache layer",         state: "done",        assignee: DEV2 },
-        { id: "SEARCH-227", type: "bug",   title: "Diacritics not matched in query",       state: "in_review",   assignee: DEV2 },
-        { id: "SEARCH-228", type: "task",  title: "Latency-budget instrumentation",        state: "done",        assignee: DEV },
+        { id: "SEARCH-224", type: "story", title: "Wire new ranking model into typeahead", state: "done",        assignee: DEV,  phase: "build",   sprint: "Sprint 23" },
+        { id: "SEARCH-225", type: "task",  title: "Feature flag + staged rollout",         state: "in_progress", assignee: DEV,  phase: "release", sprint: "Sprint 24" },
+        { id: "SEARCH-226", type: "bug",   title: "Race condition in cache layer",         state: "done",        assignee: DEV2, phase: "build",   sprint: "Sprint 23" },
+        { id: "SEARCH-227", type: "bug",   title: "Diacritics not matched in query",       state: "in_review",   assignee: DEV2, phase: "verify",  sprint: "Sprint 24",
+          links: [{ type: "blocks", target: "SEARCH-225" }] },
+        { id: "SEARCH-228", type: "task",  title: "Latency-budget instrumentation",        state: "done",        assignee: DEV,  phase: "verify",  sprint: "Sprint 23" },
       ] },
     [
       [14, "CREATE",      PM,  "PM",  { to: "backlog" }],
@@ -107,11 +110,11 @@ export function buildSeed(now: number): SeedData {
   ITEMS.push(item(
     { id: "NOTIF-88", title: "Weekly email digest opt-in", area: "Growth", priority: "Medium", parent: null,
       type: "feature", stakeholders: roster(PM2, DEV, [QAROLE, SECROLE]), workItems: [
-        { id: "NOTIF-90", type: "story", title: "Opt-in toggle in notification settings", state: "done",      assignee: PM2 },
-        { id: "NOTIF-91", type: "task",  title: "Digest aggregation job",                 state: "done",      assignee: DEV },
-        { id: "NOTIF-92", type: "task",  title: "Email template + unsubscribe link",      state: "done",      assignee: DEV },
-        { id: "NOTIF-93", type: "bug",   title: "Timezone off-by-one in send window",     state: "in_review", assignee: DEV },
-        { id: "NOTIF-94", type: "task",  title: "Compliance: CAN-SPAM footer",            state: "in_review", assignee: PM2 },
+        { id: "NOTIF-90", type: "story", title: "Opt-in toggle in notification settings", state: "done",      assignee: PM2, phase: "build",   sprint: "Sprint 22" },
+        { id: "NOTIF-91", type: "task",  title: "Digest aggregation job",                 state: "done",      assignee: DEV, phase: "build",   sprint: "Sprint 22" },
+        { id: "NOTIF-92", type: "task",  title: "Email template + unsubscribe link",      state: "done",      assignee: DEV, phase: "build",   sprint: "Sprint 23" },
+        { id: "NOTIF-93", type: "bug",   title: "Timezone off-by-one in send window",     state: "in_review", assignee: DEV, phase: "verify",  sprint: "Sprint 24" },
+        { id: "NOTIF-94", type: "task",  title: "Compliance: CAN-SPAM footer",            state: "in_review", assignee: PM2, phase: "release", sprint: "Sprint 24" },
       ] },
     [
       [20, "CREATE",      PM2, "PM",  { to: "backlog" }],

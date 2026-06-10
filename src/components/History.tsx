@@ -5,6 +5,11 @@ import { timeAgo } from "@/lib/format";
 import { Avatar } from "./badges";
 
 /* ---------------- HISTORY (event-sourced log, reverse chrono) ---------------- */
+const WI_FIELD_LABELS: Record<string, string> = {
+  acceptanceCriteria: "acceptance criteria",
+  storyPoints: "story points",
+};
+
 function describeEvent(e: PdlcEvent): { k: string; icon: string; body: React.ReactNode } {
   switch (e.type) {
     case "CREATE":
@@ -30,6 +35,16 @@ function describeEvent(e: PdlcEvent): { k: string; icon: string; body: React.Rea
       return { k: "meta", icon: "⚑", body: <span className="l1">Risk <span className="mono">{e.risk}</span> {e.value ? "flagged" : "cleared"}</span> };
     case "SPAWN_CHILD":
       return { k: "forward", icon: "⎇", body: <span className="l1">Spawned next-iteration child <b>{e.child}</b></span> };
+    case "WI_CREATE":
+      return { k: "forward", icon: "＋", body: <span className="l1">Added work item <b>{e.wiId}</b>{e.wi?.type ? <span className="mono"> · {e.wi.type}</span> : null}</span> };
+    case "WI_UPDATE": {
+      const fields = Object.keys(e.wi || {}).map((k) => WI_FIELD_LABELS[k] || k);
+      return { k: "meta", icon: "✎", body: <span className="l1">Updated work item <b>{e.wiId}</b>{fields.length ? <span className="mono"> · {fields.join(", ")}</span> : null}</span> };
+    }
+    case "WI_DELETE":
+      return { k: "rework", icon: "✕", body: <span className="l1">Removed work item <b>{e.wiId}</b></span> };
+    case "WI_COMMENT":
+      return { k: "meta", icon: "💬", body: <span className="l1">Commented on <b>{e.wiId}</b></span> };
     default:
       return { k: "meta", icon: "·", body: <span className="l1">{e.type}</span> };
   }

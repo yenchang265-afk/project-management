@@ -1,0 +1,22 @@
+# Local MariaDB for Cadence (alternative: native MariaDB — see README).
+# Port 3307 so it never collides with a host-level MySQL/MariaDB on 3306.
+services:
+  db:
+    image: mariadb:11
+    ports:
+      - "3307:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: cadence_root_dev_pw
+      MARIADB_DATABASE: cadence
+      MARIADB_USER: cadence_admin
+      MARIADB_PASSWORD: cadence_admin_dev_pw
+    volumes:
+      - cadence-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  cadence-db:
