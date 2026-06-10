@@ -138,6 +138,45 @@ describe.skipIf(!adminUrl)("repo/items against MariaDB (cadence_test)", () => {
     expect(parent.item.events[parent.item.events.length - 1].type).toBe("SPAWN_CHILD");
   });
 
+  it("admin writes: create project/team, memberships, ownership, item assignment", async () => {
+    const s = await import("./repo/structure");
+
+    const proj = await s.createProject("ML", "Machine Learning", "models & evals");
+    expect(proj.ok).toBe(true);
+    const dupProj = await s.createProject("ML2", "Machine Learning", null); // same name → same slug id
+    expect(dupProj.ok).toBe(false);
+
+    const tm = await s.createTeam("Model Squad");
+    expect(tm.ok).toBe(true);
+    expect((await s.createTeam("Model Squad")).ok).toBe(false);
+    if (!proj.ok || !tm.ok) return;
+
+    const users = await s.getUsers();
+    const maya = users.find((u) => u.name === "Maya Chen")!;
+    expect((await s.addTeamMember(tm.id, maya.id)).ok).toBe(true);
+    expect((await s.addTeamMember(tm.id, maya.id)).ok).toBe(false);          // dup member
+    expect((await s.addTeamMember(tm.id, "nope")).ok).toBe(false);           // unknown user
+    expect((await s.addProjectTeam(tm.id, proj.id)).ok).toBe(true);
+    expect((await s.addProjectTeam(tm.id, proj.id)).ok).toBe(false);         // dup ownership
+
+    const after = await s.getStructure();
+    const squad = after.teams.find((t) => t.id === tm.id)!;
+    expect(squad.members.map((m) => m.name)).toContain("Maya Chen");
+    expect(squad.projectIds).toContain(proj.id);
+
+    // item reassignment to the new project, then back
+    expect((await s.assignItemProject("ONB-140", proj.id)).ok).toBe(true);
+    expect((await import("./repo/items")).getItem).toBeDefined();
+    expect((await repo.getItem("ONB-140"))!.item.project).toBe(proj.id);
+    expect((await s.assignItemProject("ONB-140", "prj-onboarding")).ok).toBe(true);
+    expect((await s.assignItemProject("ONB-140", "prj-nope")).ok).toBe(false);
+    expect((await s.assignItemProject("NOPE-1", null)).ok).toBe(false);
+
+    expect((await s.removeTeamMember(tm.id, maya.id)).ok).toBe(true);
+    expect((await s.removeTeamMember(tm.id, maya.id)).ok).toBe(false);
+    expect((await s.removeProjectTeam(tm.id, proj.id)).ok).toBe(true);
+  });
+
   it("concurrent same-version commands: exactly one wins, the other goes stale", async () => {
     const cur = (await repo.getItem("SEARCH-220"))!;
     const mk = (v: boolean) => repo.applyCommand("SEARCH-220", cur.version,

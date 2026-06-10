@@ -16,9 +16,19 @@ export async function resetAndLogin(page: Page): Promise<void> {
   });
   expect(login.ok(), "seed PM login must succeed (run npm run db:seed)").toBeTruthy();
   // warm up the lazily-compiled API routes (Next dev compiles per-route on first
-  // hit; on slow filesystems that blows assertion timeouts mid-test)
-  await page.request.post("/api/items/__warmup__/commands", { data: {} });
-  await page.request.get("/api/items");
+  // hit; on slow filesystems that blows assertion timeouts mid-test).
+  // Invalid bodies → fast 400s; the point is only to force compilation.
+  await Promise.all([
+    page.request.post("/api/items/__warmup__/commands", { data: {} }),
+    page.request.get("/api/items"),
+    page.request.get("/api/structure"),
+    page.request.get("/api/users"),
+    page.request.post("/api/projects", { data: {} }),
+    page.request.post("/api/teams", { data: {} }),
+    page.request.post("/api/teams/__warmup__/members", { data: {} }),
+    page.request.post("/api/teams/__warmup__/projects", { data: {} }),
+    page.request.patch("/api/items/__warmup__/project", { data: {} }),
+  ]);
 }
 
 /* Shared locators for the Cadence UI. Selectors lean on existing accessible hooks

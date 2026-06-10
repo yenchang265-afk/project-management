@@ -615,3 +615,17 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .ts-itemlink{cursor:pointer;}
 .ts-itemlink:hover{border-color:var(--accent);color:var(--accent);}
 .ts-rowstate{font-size:10.5px;font-weight:700;margin-left:auto;white-space:nowrap;}
+
+/* ============ Phase 3: admin CRUD ============ */
+.admin-actions{display:flex;gap:6px;padding:0 10px 8px;}
+.admin-actions .wi-add{flex:1;}
+.admin-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:80;width:360px;display:flex;flex-direction:column;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,.18);}
+.admin-modal h2{font-size:16px;font-weight:700;margin:0;text-transform:capitalize;}
+.admin-modal input,.admin-modal textarea{width:100%;font-size:13px;font-family:inherit;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;outline:none;resize:vertical;}
+.admin-modal input:focus,.admin-modal textarea:focus{border-color:var(--accent);}
+.admin-modal-foot{display:flex;justify-content:flex-end;gap:8px;}
+.admin-modal-foot .act{width:auto;padding:7px 18px;}
+.proj-sel{max-width:200px;}
+.ts-x{margin-left:4px;color:var(--text-3);font-size:12px;line-height:1;border-radius:3px;padding:0 2px;}
+.ts-x:hover{color:var(--danger,#d4423e);}
+.ts-add{font-size:11px;max-width:140px;}

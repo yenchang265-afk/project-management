@@ -83,6 +83,16 @@ export async function seedUsers(conn: Connection): Promise<{ email: string; pass
   return out;
 }
 
+/** Hard-reset hierarchy to the seed fixture: removes any extra projects/teams
+ *  created at runtime (items/events must be wiped first — items.project_id FK). */
+export async function resetStructure(conn: Connection): Promise<void> {
+  await conn.query("DELETE FROM project_teams");
+  await conn.query("DELETE FROM team_members");
+  await conn.query("DELETE FROM teams");
+  await conn.query("DELETE FROM projects");
+  await seedStructure(conn);
+}
+
 /** Upsert projects, teams and both M:N join tables. Users must be seeded first. */
 export async function seedStructure(conn: Connection): Promise<void> {
   for (const p of SEED_PROJECTS) {

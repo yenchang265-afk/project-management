@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { deriveItem, wiBlockedBy, type Item, type WiState, type WorkItem } from "@/lib/engine";
-import type { ProjectInfo, TeamInfo } from "@/lib/api";
+import type { ProjectInfo, TeamInfo, TeamMemberInfo } from "@/lib/api";
 import { Avatar, TypeBox, WI_STATES } from "./badges";
 
 const COLUMNS: WiState[] = ["todo", "in_progress", "in_review", "blocked", "done"];
@@ -11,9 +11,13 @@ interface TeamSpaceProps {
   team: TeamInfo;
   projects: ProjectInfo[];
   items: Item[];
+  users: TeamMemberInfo[];
+  canManage: boolean;
   onMove: (itemId: string, wiId: string, to: WiState) => void;
   onOpen: (itemId: string, wiId: string) => void;
   onSelectItem: (id: string) => void;
+  onMemberOp: (userId: string, op: "add" | "remove") => void;
+  onProjectOp: (projectId: string, op: "add" | "remove") => void;
 }
 
 interface TeamWi extends WorkItem { itemId: string; itemTitle: string; blockedBy: string[]; }
@@ -21,7 +25,10 @@ interface TeamWi extends WorkItem { itemId: string; itemTitle: string; blockedBy
 /* ---------------- TEAM SPACE — scrum template ----------------
    Members · owned projects · sprint picker · sprint board (flow-checked drags)
    · ranked backlog (work items with no sprint) · committed/done points. */
-export function TeamSpace({ team, projects, items, onMove, onOpen, onSelectItem }: TeamSpaceProps) {
+export function TeamSpace({ team, projects, items, users, canManage, onMove, onOpen, onSelectItem, onMemberOp, onProjectOp }: TeamSpaceProps) {
+  const memberIds = new Set(team.members.map((m) => m.id));
+  const addableUsers = users.filter((u) => !memberIds.has(u.id));
+  const addableProjects = projects.filter((p) => !team.projectIds.includes(p.id));
   const owned = projects.filter((p) => team.projectIds.includes(p.id));
   const ownedIds = new Set(owned.map((p) => p.id));
   const teamItems = useMemo(() => items.filter((it) => it.project && ownedIds.has(it.project)),
@@ -90,9 +97,18 @@ export function TeamSpace({ team, projects, items, onMove, onOpen, onSelectItem 
           <h1>{team.name}</h1>
           <div className="ts-projects">
             {owned.map((p) => (
-              <span className="board-chip ts-proj" key={p.id} title={p.description || ""}>{p.key} · {p.name}</span>
+              <span className="board-chip ts-proj" key={p.id} title={p.description || ""}>
+                {p.key} · {p.name}
+                {canManage && <button className="ts-x" title={`Remove ${p.name}`} onClick={() => onProjectOp(p.id, "remove")}>×</button>}
+              </span>
             ))}
             {owned.length === 0 && <span className="wi-empty">No projects owned yet.</span>}
+            {canManage && addableProjects.length > 0 &&
+              <select className="wi-sel ts-add" value="" title="Add project"
+                onChange={(e) => { if (e.target.value) onProjectOp(e.target.value, "add"); }}>
+                <option value="">＋ project…</option>
+                {addableProjects.map((p) => <option key={p.id} value={p.id}>{p.key} · {p.name}</option>)}
+              </select>}
           </div>
         </div>
         <div className="spacer"></div>
@@ -102,8 +118,15 @@ export function TeamSpace({ team, projects, items, onMove, onOpen, onSelectItem 
               <Avatar name={m.name} size={26} />
               <span className="ts-mname">{m.name}</span>
               <span className="kpill">{m.role}</span>
+              {canManage && <button className="ts-x" title={`Remove ${m.name}`} onClick={() => onMemberOp(m.id, "remove")}>×</button>}
             </div>
           ))}
+          {canManage && addableUsers.length > 0 &&
+            <select className="wi-sel ts-add" value="" title="Add member"
+              onChange={(e) => { if (e.target.value) onMemberOp(e.target.value, "add"); }}>
+              <option value="">＋ member…</option>
+              {addableUsers.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.role}</option>)}
+            </select>}
         </div>
       </div>
 

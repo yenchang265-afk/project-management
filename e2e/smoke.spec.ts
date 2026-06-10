@@ -40,6 +40,29 @@ test.describe("smoke", () => {
     await expect(page.locator(".card-h h3", { hasText: "Backlog" })).toBeVisible();
   });
 
+  test("PM admin: create a team, add a member and a project, from the UI", async ({ page }) => {
+    await resetAndLogin(page);
+    await page.goto("/");
+
+    // create team via the sidebar modal
+    await page.getByRole("button", { name: "＋ Team" }).click();
+    await page.locator(".admin-modal input").fill("Tiger Team");
+    await page.locator(".admin-modal").getByRole("button", { name: "Create" }).click();
+    await expect(page.locator(".nav-teamrow", { hasText: "Tiger Team" })).toBeVisible();
+
+    // open its team space; add a member and a project
+    await page.locator(".nav-teamrow", { hasText: "Tiger Team" }).click();
+    await expect(page.locator(".teamspace h1")).toHaveText("Tiger Team");
+    await page.locator('select[title="Add member"]').selectOption({ label: "Priya Patel · Dev" });
+    await expect(page.locator(".ts-member", { hasText: "Priya Patel" })).toBeVisible();
+    await page.locator('select[title="Add project"]').selectOption({ label: "ONB · Onboarding Experience" });
+    await expect(page.locator(".ts-proj", { hasText: "Onboarding Experience" })).toBeVisible();
+
+    // remove the member again
+    await page.locator('.ts-member button[title="Remove Priya Patel"]').click();
+    await expect(page.locator(".ts-member", { hasText: "Priya Patel" })).toHaveCount(0);
+  });
+
   test("unauthenticated visit redirects to /login", async ({ page }) => {
     await page.context().clearCookies();
     await page.goto("/");

@@ -21,6 +21,7 @@ Event-sourced core: the append-only event log is the single source of truth; cur
 - Manual backlog ranking (▲▼), phase binding (discovery/build/verify/release), sprint field
 - Project-based hierarchy: projects own items, teams own projects (M:N), teams contain users (M:N)
 - Scrum team spaces: members, owned projects, sprint picker, sprint board, ranked backlog, committed/done points
+- Admin (PM role): create projects/teams, add/remove team members and owned projects, reassign items between projects
 
 ## Run
 

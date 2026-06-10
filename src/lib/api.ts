@@ -54,3 +54,27 @@ export function postSpawn(spawnFrom: string, expectedVersion: number) {
     body: JSON.stringify({ spawnFrom, expectedVersion }),
   });
 }
+
+/* ---------- Phase 3 admin (PM-only server-side) ---------- */
+export const fetchUsers = () => call<{ users: TeamMemberInfo[] }>("/api/users");
+
+export const createProject = (key: string, name: string, description: string | null) =>
+  call<{ id: string }>("/api/projects", { method: "POST", body: JSON.stringify({ key, name, description }) });
+
+export const createTeam = (name: string) =>
+  call<{ id: string }>("/api/teams", { method: "POST", body: JSON.stringify({ name }) });
+
+export const teamMemberOp = (teamId: string, userId: string, op: "add" | "remove") =>
+  call<Record<string, never>>(`/api/teams/${encodeURIComponent(teamId)}/members`, {
+    method: "POST", body: JSON.stringify({ userId, op }),
+  });
+
+export const teamProjectOp = (teamId: string, projectId: string, op: "add" | "remove") =>
+  call<Record<string, never>>(`/api/teams/${encodeURIComponent(teamId)}/projects`, {
+    method: "POST", body: JSON.stringify({ projectId, op }),
+  });
+
+export const assignItemProject = (itemId: string, projectId: string | null) =>
+  call<Record<string, never>>(`/api/items/${encodeURIComponent(itemId)}/project`, {
+    method: "PATCH", body: JSON.stringify({ projectId }),
+  });

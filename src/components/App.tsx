@@ -13,8 +13,9 @@ import {
   type SubtrackState, type TrackKey, type TransitionDef, type WiLinkType, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import {
-  fetchItems, fetchMe, fetchStructure, logout, postCommand, postSpawn,
-  type ApiUser, type Structure,
+  assignItemProject, createProject, createTeam, fetchItems, fetchMe, fetchStructure, fetchUsers,
+  logout, postCommand, postSpawn, teamMemberOp, teamProjectOp,
+  type ApiUser, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
 import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
@@ -69,6 +70,11 @@ export default function App() {
   const [me, setMe] = useState<ApiUser | null>(null);
   const [items, setItems] = useState<Item[] | null>(null);
   const [structure, setStructure] = useState<Structure | null>(null);
+  const [users, setUsers] = useState<TeamMemberInfo[]>([]);
+  const [adminModal, setAdminModal] = useState<"project" | "team" | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [draftKey, setDraftKey] = useState("");
+  const [draftDesc, setDraftDesc] = useState("");
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selId, setSelId] = useState("PAY-412");
@@ -103,11 +109,12 @@ export default function App() {
       const meRes = await fetchMe();
       if (!meRes.ok) { if (meRes.status !== 401) setLoadError(meRes.error); return; }
       setMe(meRes.data.user);
-      const [itemsRes, structRes] = await Promise.all([fetchItems(), fetchStructure()]);
+      const [itemsRes, structRes, usersRes] = await Promise.all([fetchItems(), fetchStructure(), fetchUsers()]);
       if (!itemsRes.ok) { setLoadError(itemsRes.error); return; }
       if (!structRes.ok) { setLoadError(structRes.error); return; }
       setItems(itemsRes.data.items);
       setStructure(structRes.data);
+      if (usersRes.ok) setUsers(usersRes.data.users);
       setVersions(itemsRes.data.versions);
       versionsRef.current = { ...itemsRes.data.versions };
       if (!itemsRes.data.items.some((i) => i.id === "PAY-412") && itemsRes.data.items[0])
@@ -273,6 +280,58 @@ export default function App() {
     setView("team");
   }
 
+  /* ---- Phase 3 admin (server enforces PM; client guard is UX only) ---- */
+  const isPM = role === "PM";
+  async function refreshStructure() {
+    const r = await fetchStructure();
+    if (r.ok) setStructure(r.data);
+  }
+  async function refreshItems() {
+    const r = await fetchItems();
+    if (r.ok) {
+      setItems(r.data.items);
+      setVersions(r.data.versions);
+      versionsRef.current = { ...r.data.versions };
+    }
+  }
+  function openAdminModal(kind: "project" | "team") {
+    setDraftName(""); setDraftKey(""); setDraftDesc("");
+    setAdminModal(kind);
+  }
+  async function submitAdminModal() {
+    const name = draftName.trim();
+    if (!name) return;
+    const res = adminModal === "project"
+      ? await createProject(draftKey.trim().toUpperCase(), name, draftDesc.trim() || null)
+      : await createTeam(name);
+    if (res.ok) {
+      await refreshStructure();
+      pushToast({ ok: true, message: `Created ${adminModal} “${name}”` });
+      setAdminModal(null);
+    } else {
+      pushToast({ ok: false, message: res.error });
+    }
+  }
+  async function memberOp(teamId: string, userId: string, op: "add" | "remove") {
+    const r = await teamMemberOp(teamId, userId, op);
+    if (r.ok) await refreshStructure();
+    else pushToast({ ok: false, message: r.error });
+  }
+  async function projectOp(teamId: string, projectId: string, op: "add" | "remove") {
+    const r = await teamProjectOp(teamId, projectId, op);
+    if (r.ok) await refreshStructure();
+    else pushToast({ ok: false, message: r.error });
+  }
+  async function assignProject(itemId: string, projectId: string | null) {
+    const r = await assignItemProject(itemId, projectId);
+    if (r.ok) {
+      await refreshItems();
+      pushToast({ ok: true, message: projectId ? "Item moved to project" : "Item removed from project" });
+    } else {
+      pushToast({ ok: false, message: r.error });
+    }
+  }
+
   async function doLogout() {
     await logout();
     window.location.href = "/login";
@@ -344,6 +403,11 @@ export default function App() {
               ))}
             </div>
           </div>
+          {isPM &&
+            <div className="admin-actions">
+              <button className="wi-add" onClick={() => openAdminModal("project")}>＋ Project</button>
+              <button className="wi-add" onClick={() => openAdminModal("team")}>＋ Team</button>
+            </div>}
           <div className="itemtree scroll">
             <Navigator projects={structure.projects} teams={structure.teams} items={items}
               selId={selId} selTeamId={view === "team" ? selTeamId : null}
@@ -362,7 +426,10 @@ export default function App() {
         {view === "team" && selTeam &&
           <main className="detail board-main">
             <TeamSpace team={selTeam} projects={structure.projects} items={items}
-              onMove={moveWorkItemOn} onOpen={openFromBoard} onSelectItem={selectItem} />
+              users={users} canManage={isPM}
+              onMove={moveWorkItemOn} onOpen={openFromBoard} onSelectItem={selectItem}
+              onMemberOp={(u, op) => memberOp(selTeam.id, u, op)}
+              onProjectOp={(p, op) => projectOp(selTeam.id, p, op)} />
           </main>}
 
         {/* DETAIL */}
@@ -386,6 +453,12 @@ export default function App() {
               <span className="chip" style={{ background: "var(--surface-2)", color: "var(--text-2)", border: "1px solid var(--border)" }}>{(WI_TYPES[item.type] || WI_TYPES.feature).label}</span>
               <span className="chip" style={{ background: "var(--surface-2)", color: "var(--text-2)", border: "1px solid var(--border)" }}>{item.area}</span>
               <span className={"prio " + item.priority}>{item.priority} priority</span>
+              {isPM &&
+                <select className="wi-sel proj-sel" title="Project" value={item.project ?? ""}
+                  onChange={(e) => assignProject(item.id, e.target.value || null)}>
+                  <option value="">No project</option>
+                  {structure.projects.map((p) => <option key={p.id} value={p.id}>{p.key} · {p.name}</option>)}
+                </select>}
               {item.parent && <><span className="metasep"></span>
                 <button className="lineage" onClick={() => setSelId(item.parent!)}>⎇ iteration of {item.parent}</button></>}
               {child.length > 0 && <><span className="metasep"></span>
@@ -459,6 +532,34 @@ export default function App() {
           </div>
         </main>}
       </div>
+
+      {adminModal && <>
+        <div className="wi-drawer-scrim" onClick={() => setAdminModal(null)}></div>
+        <div className="admin-modal" role="dialog" aria-modal="true" aria-label={`New ${adminModal}`}>
+          <h2>New {adminModal}</h2>
+          {adminModal === "project" &&
+            <label className="wi-field block"><span>Key</span>
+              <input value={draftKey} maxLength={8} placeholder="e.g. PAY" autoFocus
+                onChange={(e) => setDraftKey(e.target.value.toUpperCase())} />
+            </label>}
+          <label className="wi-field block"><span>Name</span>
+            <input value={draftName} maxLength={128} placeholder={adminModal === "project" ? "Project name" : "Team name"}
+              autoFocus={adminModal === "team"}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitAdminModal(); if (e.key === "Escape") setAdminModal(null); }} />
+          </label>
+          {adminModal === "project" &&
+            <label className="wi-field block"><span>Description</span>
+              <textarea value={draftDesc} rows={2} maxLength={500} placeholder="Optional"
+                onChange={(e) => setDraftDesc(e.target.value)} />
+            </label>}
+          <div className="admin-modal-foot">
+            <button className="wi-act" onClick={() => setAdminModal(null)}>Cancel</button>
+            <button className="act primary" onClick={submitAdminModal}
+              disabled={!draftName.trim() || (adminModal === "project" && draftKey.trim().length < 2)}>Create</button>
+          </div>
+        </div>
+      </>}
 
       {openWiId && snap.workItems.some((w) => w.id === openWiId) &&
         <WorkItemDrawer key={item.id + ":" + openWiId} item={item} snap={snap} wiId={openWiId} role={role}
