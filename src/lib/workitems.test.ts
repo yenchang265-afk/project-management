@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   deriveItem, ev,
   createWorkItem, updateWorkItem, deleteWorkItem, nextWorkItemId,
+  commentWorkItem, normalizeTags,
   type Item, type PdlcEvent, type WiState, type WiType, type WorkItem,
 } from "./engine";
 
@@ -204,5 +205,116 @@ describe("enum validation at the boundary (finding 5)", () => {
     const item = makeItem();
     const r = updateWorkItem(item, deriveItem(item), "PAY-418", { state: "NONSENSE" as WiState }, PM, "PM");
     expect(r.ok).toBe(false);
+  });
+});
+
+/* ---- detail fields + discussion (Azure DevOps-style) ---- */
+describe("detail fields — scalar patches via WI_UPDATE", () => {
+  it("patches description through the existing update path", () => {
+    const item = makeItem();
+    const r = updateWorkItem(item, deriveItem(item), "PAY-418", { description: "Implement the sheet" }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const w = deriveItem(withEvent(item, r.event)).workItems.find((x) => x.id === "PAY-418")!;
+    expect(w.description).toBe("Implement the sheet");
+  });
+
+  it("accepts a valid priority and story points; rejects out-of-range / negative", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    expect(updateWorkItem(item, snap, "PAY-418", { priority: 2 }, PM, "PM").ok).toBe(true);
+    expect(updateWorkItem(item, snap, "PAY-418", { storyPoints: 0 }, PM, "PM").ok).toBe(true);
+    expect(updateWorkItem(item, snap, "PAY-418", { storyPoints: 8 }, PM, "PM").ok).toBe(true);
+    expect(updateWorkItem(item, snap, "PAY-418", { priority: 5 as 4 }, PM, "PM").ok).toBe(false);
+    expect(updateWorkItem(item, snap, "PAY-418", { storyPoints: -1 }, PM, "PM").ok).toBe(false);
+    expect(updateWorkItem(item, snap, "PAY-418", { storyPoints: NaN }, PM, "PM").ok).toBe(false);
+  });
+
+  it("rejects an out-of-range severity", () => {
+    const item = makeItem();
+    expect(updateWorkItem(item, deriveItem(item), "PAY-418", { severity: 9 as 4 }, PM, "PM").ok).toBe(false);
+  });
+
+  it("WI_CREATE carries the optional detail fields into the snapshot", () => {
+    const e = ev("PAY-412", "WI_CREATE", PM, "PM", {
+      wiId: "PAY-430",
+      wi: { type: "task", title: "t", assignee: "Sam", description: "d", tags: ["a", "b"], priority: 2, storyPoints: 5, severity: 1 },
+    });
+    const w = deriveItem(withEvent(makeItem(), e)).workItems.find((x) => x.id === "PAY-430")!;
+    expect(w).toMatchObject({ description: "d", tags: ["a", "b"], priority: 2, storyPoints: 5, severity: 1 });
+  });
+});
+
+describe("tags", () => {
+  it("normalizeTags trims, drops empties, de-dupes, preserves order", () => {
+    expect(normalizeTags(["  a ", "a", "", "b", "  ", "B"])).toEqual(["a", "b", "B"]);
+  });
+  it("a real tag change emits an event; an equivalent set is a no-op", () => {
+    const item = makeItem();
+    const r = updateWorkItem(item, deriveItem(item), "PAY-418", { tags: ["ios", "payments"] }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.wi?.tags).toEqual(["ios", "payments"]);
+    const item2 = withEvent(item, r.event);
+    // setting the same tags (with noise) again -> normalized-equal -> no event
+    const r2 = updateWorkItem(item2, deriveItem(item2), "PAY-418", { tags: [" ios ", "payments", "ios"] }, PM, "PM");
+    expect(r2.ok).toBe(false);
+  });
+});
+
+describe("discussion (WI_COMMENT)", () => {
+  it("rejects an empty comment and an unknown id", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    expect(commentWorkItem(item, snap, "PAY-418", "   ", PM, "PM").ok).toBe(false);
+    expect(commentWorkItem(item, snap, "PAY-999", "hi", PM, "PM").ok).toBe(false);
+  });
+  it("appends comments to the work item in chronological order", () => {
+    let item = makeItem();
+    const c1 = commentWorkItem(item, deriveItem(item), "PAY-418", "first", PM, "PM");
+    if (!c1.ok) throw new Error("c1 failed");
+    item = withEvent(item, c1.event);
+    const c2 = commentWorkItem(item, deriveItem(item), "PAY-418", "  second  ", "Sam Okafor", "Dev");
+    if (!c2.ok) throw new Error("c2 failed");
+    item = withEvent(item, c2.event);
+
+    const w = deriveItem(item).workItems.find((x) => x.id === "PAY-418")!;
+    expect((w.comments || []).map((c) => c.text)).toEqual(["first", "second"]); // trimmed + ordered
+    expect(w.comments![1]).toMatchObject({ author: "Sam Okafor", role: "Dev" });
+  });
+  it("leaves comment-less items without a comments field (baseline shape preserved)", () => {
+    const w = deriveItem(makeItem()).workItems.find((x) => x.id === "PAY-420")!;
+    expect(w.comments).toBeUndefined();
+  });
+});
+
+/* ---- review round 2 fixes ---- */
+describe("clearing optional scalars (review)", () => {
+  it("can clear a set priority back to unset", () => {
+    let item = makeItem();
+    const set = updateWorkItem(item, deriveItem(item), "PAY-418", { priority: 2 }, PM, "PM");
+    if (!set.ok) throw new Error("set failed");
+    item = withEvent(item, set.event);
+    expect(deriveItem(item).workItems.find((w) => w.id === "PAY-418")!.priority).toBe(2);
+    const clear = updateWorkItem(item, deriveItem(item), "PAY-418", { priority: undefined }, PM, "PM");
+    expect(clear.ok).toBe(true);
+    if (!clear.ok) return;
+    item = withEvent(item, clear.event);
+    expect(deriveItem(item).workItems.find((w) => w.id === "PAY-418")!.priority).toBeUndefined();
+  });
+  it("clearing an already-unset scalar is a no-op", () => {
+    const item = makeItem();
+    expect(updateWorkItem(item, deriveItem(item), "PAY-418", { priority: undefined }, PM, "PM").ok).toBe(false);
+    expect(updateWorkItem(item, deriveItem(item), "PAY-418", { storyPoints: undefined }, PM, "PM").ok).toBe(false);
+  });
+});
+
+describe("WI_CREATE tag hygiene (review)", () => {
+  it("normalizes tags supplied on create and isolates them from the event payload", () => {
+    const raw = ["  a ", "a", "", "b"];
+    const e = ev("PAY-412", "WI_CREATE", PM, "PM", { wiId: "PAY-430", wi: { type: "task", title: "t", assignee: "x", tags: raw } });
+    const w = deriveItem(withEvent(makeItem(), e)).workItems.find((x) => x.id === "PAY-430")!;
+    expect(w.tags).toEqual(["a", "b"]);
+    expect(w.tags).not.toBe(raw); // fresh array, not aliasing the event payload
   });
 });

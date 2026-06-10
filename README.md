@@ -14,6 +14,11 @@ Event-sourced core: the append-only event log is the single source of truth; cur
 - Role switch (Product / Engineering) with role-guarded actions, typed rejections as toasts
 - Org → group → team → epic → feature navigator with search + lane filters
 - Blocked / on-hold flags (orthogonal to state), iteration-child spawning
+- Work items with per-type SDLC workflows (declarative flow tables, flow-checked moves)
+- SDLC→PDLC rollup: "Work items complete" release condition auto-satisfies when all WIs are done
+- Cross-feature kanban board (columns = WI states, swimlanes = features) with drag-drop + filters (text / type / phase / assignee / sprint)
+- WI links (blocks / relates / duplicates) with derived inverse display; open blockers gate the move to done
+- Manual backlog ranking (▲▼), phase binding (discovery/build/verify/release), sprint field
 
 ## Run
 

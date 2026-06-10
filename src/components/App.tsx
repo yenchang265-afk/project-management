@@ -6,14 +6,16 @@
 import { useLayoutEffect, useState } from "react";
 import {
   GATES, STATES,
-  applyTransition, createWorkItem, deleteWorkItem, deriveItem, ev, label, updateWorkItem,
+  applyTransition, commentWorkItem, createWorkItem, deleteWorkItem, deriveItem, ev, label,
+  linkWorkItems, reorderWorkItem, transitionWorkItem, unlinkWorkItems, updateWorkItem,
   type FlagKey, type GateKey, type Item, type Rejection, type Role,
-  type SubtrackState, type TrackKey, type TransitionDef, type WiState, type WiType, type WorkItem,
+  type SubtrackState, type TrackKey, type TransitionDef, type WiLinkType, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import { buildSeed, type SeedData } from "@/lib/seed";
 import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
 import { Analytics } from "./Analytics";
+import { Board } from "./Board";
 import { GateInspector } from "./GateInspector";
 import { History } from "./History";
 import { Navigator } from "./Navigator";
@@ -24,6 +26,7 @@ import { Stakeholders } from "./Stakeholders";
 import { SubTracks } from "./SubTracks";
 import { Toasts, type Toast } from "./Toasts";
 import { WorkItems } from "./WorkItems";
+import { WorkItemDrawer } from "./WorkItemDrawer";
 
 const CURRENT_USER: Record<Role, string> = { PM: "Maya Chen", Dev: "Sam Okafor" };
 
@@ -56,6 +59,8 @@ export default function App() {
   const [items, setItems] = useState<Item[]>(() => seed.ITEMS.map((it) => ({ ...it, events: it.events.slice() })));
   const [role, setRole] = useState<Role>("PM");
   const [selId, setSelId] = useState("PAY-412");
+  const [view, setView] = useState<"detail" | "board">("detail");
+  const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [query, setQuery] = useState("");
@@ -75,6 +80,9 @@ export default function App() {
     r.setAttribute("data-density", THEME.density);
     r.style.setProperty("--accent", THEME.accent);
   }, []);
+
+  // NOTE: the drawer is keyed to (item, wiId); when selId changes the render guard below
+  // hides it automatically because no other item contains the open wiId (ids are prefixed).
 
   const actor = CURRENT_USER[role];
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
@@ -188,6 +196,39 @@ export default function App() {
       pushToast({ ok: true, message: `Removed work item ${wiId}` });
     } else pushToast({ ok: false, message: res.error });
   }
+  function commentOnWorkItem(wiId: string, text: string) {
+    const res = commentWorkItem(item, snap, wiId, text, actor, role);
+    if (res.ok) append(item.id, res.event);
+    else pushToast({ ok: false, message: res.error });
+  }
+  /* flow-checked WI state move — works on any item (the board spans all of them) */
+  function moveWorkItemOn(itemId: string, wiId: string, to: WiState) {
+    const it = byId[itemId];
+    if (!it) return;
+    const res = transitionWorkItem(it, deriveItem(it), wiId, to, actor, role);
+    if (res.ok) append(itemId, res.event);
+    else pushToast({ ok: false, message: res.error });
+  }
+  function moveWorkItem(wiId: string, to: WiState) { moveWorkItemOn(item.id, wiId, to); }
+  function linkWi(wiId: string, type: WiLinkType, target: string) {
+    const res = linkWorkItems(item, snap, wiId, type, target, actor, role);
+    if (res.ok) append(item.id, res.event);
+    else pushToast({ ok: false, message: res.error });
+  }
+  function unlinkWi(wiId: string, type: WiLinkType, target: string) {
+    const res = unlinkWorkItems(item, snap, wiId, type, target, actor, role);
+    if (res.ok) append(item.id, res.event);
+    else pushToast({ ok: false, message: res.error });
+  }
+  function rankWi(wiId: string, toIndex: number) {
+    const res = reorderWorkItem(item, snap, wiId, toIndex, actor, role);
+    if (res.ok) append(item.id, res.event);
+    else pushToast({ ok: false, message: res.error });
+  }
+  function openFromBoard(itemId: string, wiId: string) {
+    setSelId(itemId);
+    setOpenWiId(wiId);
+  }
 
   /* ---- which gate to surface ---- */
   const curSpine = STATES[snap.state] ? STATES[snap.state].spine ?? null : null;
@@ -212,6 +253,13 @@ export default function App() {
         <div className="brand">
           <span className="glyph">C</span>
           <span>Cadence</span>
+        </div>
+        <div className="viewswitch">
+          {(["detail", "board"] as const).map((v) => (
+            <button key={v} data-on={view === v} onClick={() => setView(v)}>
+              {v === "detail" ? "▤ Details" : "▦ Board"}
+            </button>
+          ))}
         </div>
         <div className="spacer"></div>
         <div className="roleswitch">
@@ -269,8 +317,14 @@ export default function App() {
           </div>
         </aside>
 
+        {/* BOARD */}
+        {view === "board" &&
+          <main className="detail board-main">
+            <Board items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
+          </main>}
+
         {/* DETAIL */}
-        <main className="detail">
+        {view === "detail" && <main className="detail">
           <div className="detail-head">
             <div className="crumbs">
               <span className="c">{org}</span><span className="sep">›</span>
@@ -353,15 +407,21 @@ export default function App() {
               <div className="stack">
                 <Stakeholders item={item} snap={snap} />
                 <WorkItems key={item.id} item={item} snap={snap} role={role}
-                  onCreate={addWorkItem} onUpdate={editWorkItem} onDelete={removeWorkItem} />
+                  onCreate={addWorkItem} onUpdate={editWorkItem} onDelete={removeWorkItem} onOpen={setOpenWiId}
+                  onMove={moveWorkItem} onReorder={rankWi} />
                 <History item={item} />
                 <Analytics item={item} />
               </div>
             </div>
             <div className="foot-note">events are the single source of truth · current state, gates, flags &amp; analytics are all derived</div>
           </div>
-        </main>
+        </main>}
       </div>
+
+      {openWiId && snap.workItems.some((w) => w.id === openWiId) &&
+        <WorkItemDrawer key={item.id + ":" + openWiId} item={item} snap={snap} wiId={openWiId} role={role}
+          onClose={() => setOpenWiId(null)} onUpdate={editWorkItem} onComment={commentOnWorkItem}
+          onMove={moveWorkItem} onLink={linkWi} onUnlink={unlinkWi} />}
 
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>

@@ -22,11 +22,18 @@ export type SubtrackState = "pending" | "in_review" | "changes_requested" | "app
 export type FlagKey = "blocked" | "on_hold";
 export type WiType = "epic" | "feature" | "story" | "task" | "bug";
 export type WiState = "todo" | "in_progress" | "in_review" | "blocked" | "done";
+export type WiPriority = 1 | 2 | 3 | 4; // 1 = highest
+export type WiSeverity = 1 | 2 | 3 | 4; // 1 = Critical .. 4 = Low
+/** SDLC phase a work item is bound to — the bridge between work items and the PDLC spine. */
+export type WiPhase = "discovery" | "build" | "verify" | "release";
+export type WiLinkType = "blocks" | "relates" | "duplicates";
+export interface WiLink { type: WiLinkType; target: string; }
 export type EventType =
   | "CREATE" | "TRANSITION" | "CONDITION_SATISFY" | "CONDITION_WAIVE"
   | "CONDITION_RESET" | "SHIFT_LEFT_SET" | "GATE_SIGNOFF" | "GATE_SIGNOFF_CLEAR"
   | "SUBTRACK" | "FLAG_SET" | "SPAWN_CHILD"
-  | "WI_CREATE" | "WI_UPDATE" | "WI_DELETE";
+  | "WI_CREATE" | "WI_UPDATE" | "WI_DELETE" | "WI_COMMENT"
+  | "WI_LINK" | "WI_UNLINK" | "WI_REORDER";
 
 export interface StateDef {
   key: StateKey;
@@ -80,8 +87,20 @@ export interface PdlcEvent {
   value?: boolean;
   risk?: string;
   child?: string;
-  wiId?: string;            // target work-item id (WI_CREATE / WI_UPDATE / WI_DELETE)
+  wiId?: string;            // target work-item id (WI_CREATE / WI_UPDATE / WI_DELETE / WI_COMMENT / WI_LINK / WI_UNLINK)
   wi?: Partial<WorkItem>;   // WI_CREATE: full fields · WI_UPDATE: patch
+  text?: string;            // WI_COMMENT body
+  linkType?: WiLinkType;    // WI_LINK / WI_UNLINK
+  linkTarget?: string;      // WI_LINK / WI_UNLINK: the other work item
+  order?: string[];         // WI_REORDER: full ordered id list at the time of the event
+}
+
+export interface WiComment {
+  id: string;
+  author: string;
+  role: Role;
+  ts: number;
+  text: string;
 }
 
 export interface WorkItem {
@@ -90,6 +109,17 @@ export interface WorkItem {
   title: string;
   state: WiState;
   assignee: string;
+  // Azure DevOps-style detail fields — all optional, so seed items stay unchanged.
+  description?: string;
+  acceptanceCriteria?: string;
+  priority?: WiPriority;
+  storyPoints?: number;       // >= 0
+  severity?: WiSeverity;
+  tags?: string[];            // trimmed, de-duped, non-empty
+  comments?: WiComment[];     // DERIVED from WI_COMMENT events; omitted when none
+  phase?: WiPhase;            // SDLC phase binding (drives board swimlanes + rollup context)
+  sprint?: string;            // sprint/iteration name (free text, trimmed)
+  links?: WiLink[];           // outgoing links; inverse direction is derived for display
 }
 
 export interface Stakeholder {
@@ -231,6 +261,7 @@ export const GATES: Record<GateKey, GateDef> = {
       { key: "qa_passed",                label: "QA passed",           owner: "Dev", base: "required" },
       { key: "pm_acceptance",            label: "PM acceptance",       owner: "PM",  base: "required" },
       { key: "docs_runbook_ready",       label: "Docs & runbook",      owner: "Dev", base: "required" },
+      { key: "work_complete",            label: "Work items complete", owner: "Dev", base: "required" },
       { key: "security_review_approved", label: "Security review",     owner: "Dev", base: "not_applicable", conditional: true, track: "security" },
       { key: "compliance_signoff",       label: "Compliance sign-off", owner: "PM",  base: "not_applicable", conditional: true, track: "compliance" },
     ],
@@ -276,7 +307,14 @@ export function deriveItem(item: Item): Snapshot {
   const subtracks: Snapshot["subtracks"] = { security: "pending", compliance: "pending" };
   const children: string[] = [];
   // work items: seed baseline, then fold WI_* events on top (append-only; delete = tombstone)
-  let workItems: WorkItem[] = (item.workItems || []).map((w) => ({ ...w }));
+  let workItems: WorkItem[] = (item.workItems || []).map((w) => {
+    const copy = { ...w };
+    if (w.tags) copy.tags = [...w.tags];
+    if (w.links) copy.links = w.links.map((l) => ({ ...l }));
+    return copy;
+  });
+  const commentsByWi: Record<string, WiComment[]> = {}; // WI_COMMENT thread per work item
+  let wiOrder: string[] | null = null;                  // latest WI_REORDER wins
 
   // seed condition defaults from BOTH gates
   for (const g of Object.values(GATES))
@@ -323,21 +361,60 @@ export function deriveItem(item: Item): Snapshot {
       case "WI_CREATE":
         if (e.wiId && !workItems.some((w) => w.id === e.wiId)) {
           const p = e.wi || {};
-          workItems = [...workItems, {
+          const created: WorkItem = {
             id: e.wiId,
             type: (p.type as WiType) || "task",
             title: p.title ?? "",
             state: (p.state as WiState) || "todo",
             assignee: p.assignee ?? "",
-          }];
+          };
+          // carry the optional detail fields when the create event supplies them
+          if (p.description !== undefined) created.description = p.description;
+          if (p.acceptanceCriteria !== undefined) created.acceptanceCriteria = p.acceptanceCriteria;
+          if (p.priority !== undefined) created.priority = p.priority;
+          if (p.storyPoints !== undefined) created.storyPoints = p.storyPoints;
+          if (p.severity !== undefined) created.severity = p.severity;
+          if (p.tags !== undefined) created.tags = normalizeTags(p.tags); // canonical + fresh array
+          if (p.phase !== undefined) created.phase = p.phase;
+          if (p.sprint !== undefined) created.sprint = p.sprint;
+          workItems = [...workItems, created];
         }
         break;
       case "WI_UPDATE":
         if (e.wiId)
-          workItems = workItems.map((w) => (w.id === e.wiId ? { ...w, ...e.wi, id: w.id } : w));
+          workItems = workItems.map((w) => {
+            if (w.id !== e.wiId) return w;
+            const merged = { ...w, ...e.wi, id: w.id };
+            // never alias the immutable event payload's array into derived state
+            if (e.wi && Array.isArray(e.wi.tags)) merged.tags = [...e.wi.tags];
+            return merged;
+          });
         break;
       case "WI_DELETE":
         if (e.wiId) workItems = workItems.filter((w) => w.id !== e.wiId);
+        break;
+      case "WI_COMMENT":
+        if (e.wiId && e.text) {
+          if (!commentsByWi[e.wiId]) commentsByWi[e.wiId] = [];
+          commentsByWi[e.wiId].push({ id: e.id, author: e.actor, role: e.role, ts: e.ts, text: e.text });
+        }
+        break;
+      case "WI_LINK":
+        if (e.wiId && e.linkType && e.linkTarget)
+          workItems = workItems.map((w) => {
+            if (w.id !== e.wiId) return w;
+            const links = w.links || [];
+            if (links.some((l) => l.type === e.linkType && l.target === e.linkTarget)) return w;
+            return { ...w, links: [...links, { type: e.linkType!, target: e.linkTarget! }] };
+          });
+        break;
+      case "WI_UNLINK":
+        if (e.wiId && e.linkType && e.linkTarget)
+          workItems = workItems.map((w) =>
+            w.id !== e.wiId ? w : { ...w, links: (w.links || []).filter((l) => !(l.type === e.linkType && l.target === e.linkTarget)) });
+        break;
+      case "WI_REORDER":
+        if (e.order) wiOrder = e.order;
         break;
     }
   }
@@ -368,6 +445,30 @@ export function deriveItem(item: Item): Snapshot {
   for (const c of GATES.release.conditions)
     if (c.track && subtracks[c.track] === "approved" && conditions[c.key] === "required")
       conditions[c.key] = "satisfied";
+
+  // ----- manual rank: latest WI_REORDER wins; ids created later append at the end -----
+  if (wiOrder) {
+    const idx = new Map(wiOrder.map((id, i) => [id, i]));
+    const ranked = workItems.filter((w) => idx.has(w.id)).sort((a, b) => idx.get(a.id)! - idx.get(b.id)!);
+    const rest = workItems.filter((w) => !idx.has(w.id));
+    workItems = [...ranked, ...rest];
+  }
+
+  // ----- drop links whose target no longer exists (tombstoned) -----
+  const liveIds = new Set(workItems.map((w) => w.id));
+  workItems = workItems.map((w) => {
+    if (!w.links) return w;
+    const kept = w.links.filter((l) => liveIds.has(l.target));
+    return kept.length === w.links.length ? w : { ...w, links: kept };
+  });
+
+  // ----- SDLC→PDLC rollup: all work items done auto-satisfies the release condition -----
+  // (vacuously satisfied with zero work items; an explicit satisfy/waive event always wins)
+  if (conditions.work_complete === "required" && workItems.every((w) => w.state === "done"))
+    conditions.work_complete = "satisfied";
+
+  // attach derived comment threads (omit when none, to keep comment-less items' shape stable)
+  workItems = workItems.map((w) => (commentsByWi[w.id] ? { ...w, comments: commentsByWi[w.id] } : w));
 
   return { state, conditions, flags, signoffs, subtracks, children, workItems, activeRisks, events };
 }
@@ -473,6 +574,63 @@ export const WI_STATES_ALL: WiState[] = ["todo", "in_progress", "in_review", "bl
 const WI_TYPE_SET = new Set<string>(WI_TYPES_ALL);
 const WI_STATE_SET = new Set<string>(WI_STATES_ALL);
 
+export const WI_PHASES_ALL: WiPhase[] = ["discovery", "build", "verify", "release"];
+export const WI_PHASE_LABELS: Record<WiPhase, string> = {
+  discovery: "Discovery", build: "Build", verify: "Verify", release: "Release",
+};
+const WI_PHASE_SET = new Set<string>(WI_PHASES_ALL);
+
+export const WI_LINK_TYPES: WiLinkType[] = ["blocks", "relates", "duplicates"];
+export const WI_LINK_LABELS: Record<WiLinkType, { out: string; in: string }> = {
+  blocks:     { out: "blocks",        in: "blocked by" },
+  relates:    { out: "relates to",    in: "relates to" },
+  duplicates: { out: "duplicates",    in: "duplicated by" },
+};
+const WI_LINK_SET = new Set<string>(WI_LINK_TYPES);
+const SYMMETRIC_LINKS = new Set<WiLinkType>(["relates", "duplicates"]);
+
+/* ---------- Work-item workflow (declarative, per type — same philosophy as TRANSITIONS) ----------
+   transitionWorkItem enforces these moves (and open blockers); updateWorkItem stays a
+   free-form admin edit so the detail form can correct any field, state included. */
+export const WI_FLOW_BASE: Record<WiState, WiState[]> = {
+  todo:        ["in_progress"],
+  in_progress: ["in_review", "blocked", "todo"],
+  in_review:   ["done", "in_progress"],
+  blocked:     ["in_progress", "todo"],
+  done:        ["todo"],
+};
+export const WI_FLOW_OVERRIDES: Partial<Record<WiType, Partial<Record<WiState, WiState[]>>>> = {
+  bug: { done: ["in_progress"] }, // a reopened bug goes straight back to fixing
+};
+export function wiFlow(type: WiType): Record<WiState, WiState[]> {
+  return { ...WI_FLOW_BASE, ...(WI_FLOW_OVERRIDES[type] || {}) };
+}
+export function legalWiMoves(wi: WorkItem): WiState[] {
+  return wiFlow(wi.type)[wi.state] || [];
+}
+
+export const WI_PRIORITIES: WiPriority[] = [1, 2, 3, 4];
+export const WI_SEVERITIES: WiSeverity[] = [1, 2, 3, 4];
+export const WI_PRIORITY_LABELS: Record<WiPriority, string> = { 1: "1 · Highest", 2: "2 · High", 3: "3 · Medium", 4: "4 · Low" };
+export const WI_SEVERITY_LABELS: Record<WiSeverity, string> = { 1: "1 · Critical", 2: "2 · High", 3: "3 · Medium", 4: "4 · Low" };
+const WI_PRIORITY_SET = new Set<number>(WI_PRIORITIES);
+const WI_SEVERITY_SET = new Set<number>(WI_SEVERITIES);
+
+/** Clean a tag list: trim, drop empties, de-dupe (exact), preserve order. */
+export function normalizeTags(tags: string[]): string[] {
+  const out: string[] = [];
+  for (const t of tags) {
+    const v = (t || "").trim();
+    if (v && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+function sameTags(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((t, i) => t === b[i]);
+}
+
 /** Next free id: PREFIX-(max numeric suffix + 1), min PREFIX-100.
  *  Scans EVERY id that has ever existed for this item — live items, the seed baseline,
  *  and every prior WI_CREATE / WI_DELETE — so a tombstoned id is never reused (monotonic). */
@@ -492,7 +650,7 @@ export function nextWorkItemId(item: Item, snap: Snapshot): string {
 
 export function createWorkItem(
   item: Item, snap: Snapshot,
-  draft: { type: WiType; title: string; assignee: string; state?: WiState },
+  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string },
   actor: string, role: Role
 ): WiResult {
   const title = (draft.title || "").trim();
@@ -500,6 +658,8 @@ export function createWorkItem(
   if (!WI_TYPE_SET.has(draft.type)) return { ok: false, error: `Invalid work-item type "${draft.type}".` };
   if (draft.state !== undefined && !WI_STATE_SET.has(draft.state))
     return { ok: false, error: `Invalid work-item state "${draft.state}".` };
+  if (draft.phase !== undefined && !WI_PHASE_SET.has(draft.phase))
+    return { ok: false, error: `Invalid phase "${draft.phase}".` };
   const id = nextWorkItemId(item, snap);
   if (snap.workItems.some((w) => w.id === id))
     return { ok: false, error: `Work item ${id} already exists.` };
@@ -509,6 +669,9 @@ export function createWorkItem(
     state: draft.state || "todo",
     assignee: (draft.assignee || "").trim(),
   };
+  if (draft.phase !== undefined) wi.phase = draft.phase;
+  const sprint = (draft.sprint || "").trim();
+  if (sprint) wi.sprint = sprint;
   return { ok: true, event: ev(item.id, "WI_CREATE", actor, role, { wiId: id, wi }) };
 }
 
@@ -524,6 +687,16 @@ export function updateWorkItem(
     return { ok: false, error: `Invalid work-item state "${patch.state}".` };
   if (patch.title !== undefined && !patch.title.trim())
     return { ok: false, error: "Work item needs a title." };
+  if (patch.priority !== undefined && !WI_PRIORITY_SET.has(patch.priority))
+    return { ok: false, error: `Invalid priority "${patch.priority}".` };
+  if (patch.severity !== undefined && !WI_SEVERITY_SET.has(patch.severity))
+    return { ok: false, error: `Invalid severity "${patch.severity}".` };
+  if (patch.storyPoints !== undefined && (!Number.isFinite(patch.storyPoints) || patch.storyPoints < 0))
+    return { ok: false, error: "Story points must be a number ≥ 0." };
+  if (patch.tags !== undefined && !Array.isArray(patch.tags))
+    return { ok: false, error: "Tags must be a list." };
+  if (patch.phase !== undefined && !WI_PHASE_SET.has(patch.phase))
+    return { ok: false, error: `Invalid phase "${patch.phase}".` };
   // Effective patch = only the fields that actually change (id is immutable).
   // Keeps the log clean and honours the "wi = only changed fields" event convention.
   const wi: Partial<WorkItem> = {};
@@ -531,6 +704,21 @@ export function updateWorkItem(
   if (patch.state !== undefined && patch.state !== cur.state) wi.state = patch.state;
   if (patch.title !== undefined && patch.title.trim() !== cur.title) wi.title = patch.title.trim();
   if (patch.assignee !== undefined && patch.assignee.trim() !== cur.assignee) wi.assignee = patch.assignee.trim();
+  if (patch.description !== undefined && patch.description !== cur.description) wi.description = patch.description;
+  if (patch.acceptanceCriteria !== undefined && patch.acceptanceCriteria !== cur.acceptanceCriteria) wi.acceptanceCriteria = patch.acceptanceCriteria;
+  // nullable scalars: "key in patch" lets an explicit undefined clear a set value
+  if ("priority" in patch && patch.priority !== cur.priority) wi.priority = patch.priority;
+  if ("storyPoints" in patch && patch.storyPoints !== cur.storyPoints) wi.storyPoints = patch.storyPoints;
+  if ("severity" in patch && patch.severity !== cur.severity) wi.severity = patch.severity;
+  if ("phase" in patch && patch.phase !== cur.phase) wi.phase = patch.phase;
+  if ("sprint" in patch) {
+    const v = (patch.sprint ?? "").trim() || undefined;
+    if (v !== cur.sprint) wi.sprint = v;
+  }
+  if (patch.tags !== undefined) {
+    const norm = normalizeTags(patch.tags);
+    if (!sameTags(norm, cur.tags || [])) wi.tags = norm;
+  }
   if (Object.keys(wi).length === 0) return { ok: false, error: "No changes to save." };
   return { ok: true, event: ev(item.id, "WI_UPDATE", actor, role, { wiId, wi }) };
 }
@@ -541,6 +729,94 @@ export function deleteWorkItem(
   if (!snap.workItems.some((w) => w.id === wiId))
     return { ok: false, error: `Work item ${wiId} not found.` };
   return { ok: true, event: ev(item.id, "WI_DELETE", actor, role, { wiId }) };
+}
+
+/** Post a comment to a work item's discussion thread (append-only). */
+export function commentWorkItem(
+  item: Item, snap: Snapshot, wiId: string, text: string, author: string, role: Role
+): WiResult {
+  if (!snap.workItems.some((w) => w.id === wiId))
+    return { ok: false, error: `Work item ${wiId} not found.` };
+  const body = (text || "").trim();
+  if (!body) return { ok: false, error: "Comment can’t be empty." };
+  return { ok: true, event: ev(item.id, "WI_COMMENT", author, role, { wiId, text: body }) };
+}
+
+/* ---------- WI workflow transition (flow-table + blocker enforced) ---------- */
+
+/** Ids of OPEN work items that declare a `blocks` link onto `wiId`. */
+export function wiBlockedBy(snap: Snapshot, wiId: string): string[] {
+  return snap.workItems
+    .filter((w) => w.state !== "done" && (w.links || []).some((l) => l.type === "blocks" && l.target === wiId))
+    .map((w) => w.id);
+}
+
+const WI_STATE_LABELS: Record<WiState, string> = {
+  todo: "To do", in_progress: "In progress", in_review: "In review", blocked: "Blocked", done: "Done",
+};
+
+/** Move a work item along its type's flow table. Rejects illegal moves and
+ *  (for moves to done) open blockers. Emits a state-only WI_UPDATE. */
+export function transitionWorkItem(
+  item: Item, snap: Snapshot, wiId: string, to: WiState, actor: string, role: Role
+): WiResult {
+  const cur = snap.workItems.find((w) => w.id === wiId);
+  if (!cur) return { ok: false, error: `Work item ${wiId} not found.` };
+  if (!WI_STATE_SET.has(to)) return { ok: false, error: `Invalid work-item state "${to}".` };
+  if (to === cur.state) return { ok: false, error: `${wiId} is already ${WI_STATE_LABELS[to]}.` };
+  const legal = legalWiMoves(cur);
+  if (!legal.includes(to))
+    return {
+      ok: false,
+      error: `${wiId} can’t move ${WI_STATE_LABELS[cur.state]} → ${WI_STATE_LABELS[to]}. Legal: ${legal.map((s) => WI_STATE_LABELS[s]).join(", ") || "none"}.`,
+    };
+  if (to === "done") {
+    const blockers = wiBlockedBy(snap, wiId);
+    if (blockers.length)
+      return { ok: false, error: `${wiId} is blocked by open ${blockers.length > 1 ? "items" : "item"} ${blockers.join(", ")} — finish or unlink them first.` };
+  }
+  return { ok: true, event: ev(item.id, "WI_UPDATE", actor, role, { wiId, wi: { state: to } }) };
+}
+
+/* ---------- WI links ---------- */
+export function linkWorkItems(
+  item: Item, snap: Snapshot, fromId: string, type: WiLinkType, targetId: string, actor: string, role: Role
+): WiResult {
+  if (!WI_LINK_SET.has(type)) return { ok: false, error: `Invalid link type "${type}".` };
+  const from = snap.workItems.find((w) => w.id === fromId);
+  if (!from) return { ok: false, error: `Work item ${fromId} not found.` };
+  const target = snap.workItems.find((w) => w.id === targetId);
+  if (!target) return { ok: false, error: `Work item ${targetId} not found.` };
+  if (fromId === targetId) return { ok: false, error: "A work item can’t link to itself." };
+  if ((from.links || []).some((l) => l.type === type && l.target === targetId))
+    return { ok: false, error: `${fromId} already ${WI_LINK_LABELS[type].out} ${targetId}.` };
+  if (SYMMETRIC_LINKS.has(type) && (target.links || []).some((l) => l.type === type && l.target === fromId))
+    return { ok: false, error: `${targetId} already ${WI_LINK_LABELS[type].out} ${fromId}.` };
+  return { ok: true, event: ev(item.id, "WI_LINK", actor, role, { wiId: fromId, linkType: type, linkTarget: targetId }) };
+}
+
+export function unlinkWorkItems(
+  item: Item, snap: Snapshot, fromId: string, type: WiLinkType, targetId: string, actor: string, role: Role
+): WiResult {
+  const from = snap.workItems.find((w) => w.id === fromId);
+  if (!from) return { ok: false, error: `Work item ${fromId} not found.` };
+  if (!(from.links || []).some((l) => l.type === type && l.target === targetId))
+    return { ok: false, error: `No "${type}" link from ${fromId} to ${targetId}.` };
+  return { ok: true, event: ev(item.id, "WI_UNLINK", actor, role, { wiId: fromId, linkType: type, linkTarget: targetId }) };
+}
+
+/* ---------- WI manual ranking ---------- */
+export function reorderWorkItem(
+  item: Item, snap: Snapshot, wiId: string, toIndex: number, actor: string, role: Role
+): WiResult {
+  const ids = snap.workItems.map((w) => w.id);
+  const fromIdx = ids.indexOf(wiId);
+  if (fromIdx === -1) return { ok: false, error: `Work item ${wiId} not found.` };
+  const clamped = Math.max(0, Math.min(ids.length - 1, Math.trunc(toIndex)));
+  if (clamped === fromIdx) return { ok: false, error: "No changes to save." };
+  const order = ids.filter((id) => id !== wiId);
+  order.splice(clamped, 0, wiId);
+  return { ok: true, event: ev(item.id, "WI_REORDER", actor, role, { order }) };
 }
 
 /* =======================================================================

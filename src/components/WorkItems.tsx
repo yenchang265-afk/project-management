@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Item, Role, Snapshot, WiState, WiType, WorkItem } from "@/lib/engine";
+import { legalWiMoves, wiBlockedBy, type Item, type Role, type Snapshot, type WiState, type WiType, type WorkItem } from "@/lib/engine";
 import { Avatar, TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 const WI_TYPE_OPTS: WiType[] = ["story", "task", "bug"];
@@ -17,10 +17,13 @@ interface WorkItemsProps {
   onCreate: (draft: Draft) => void;
   onUpdate: (wiId: string, patch: Partial<WorkItem>) => void;
   onDelete: (wiId: string) => void;
+  onOpen: (wiId: string) => void;
+  onMove: (wiId: string, to: WiState) => void;
+  onReorder: (wiId: string, toIndex: number) => void;
 }
 
 /* ---------------- WORK ITEMS — inline CRUD (story / task / bug) ---------------- */
-export function WorkItems({ item, snap, onCreate, onUpdate, onDelete }: WorkItemsProps) {
+export function WorkItems({ item, snap, onCreate, onUpdate, onDelete, onOpen, onMove, onReorder }: WorkItemsProps) {
   const wi = snap.workItems;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -93,19 +96,26 @@ export function WorkItems({ item, snap, onCreate, onUpdate, onDelete }: WorkItem
                 <span className="lb">{pct}%</span>
               </div>
               <div className="wilist">
-                {wi.map((w) => {
+                {wi.map((w, i) => {
                   const editing = editingId === w.id;
                   const dstate = editing ? draft.state : w.state; // shown state (draft while editing)
                   const st = WI_STATES[dstate] || WI_STATES.todo;
+                  const blockers = wiBlockedBy(snap, w.id);
                   return (
                     <div className="wirow" key={w.id}>
+                      <span className="wi-rank">
+                        <button className="wi-rank-btn" title="Move up" disabled={i === 0} onClick={() => onReorder(w.id, i - 1)}>▲</button>
+                        <button className="wi-rank-btn" title="Move down" disabled={i === wi.length - 1} onClick={() => onReorder(w.id, i + 1)}>▼</button>
+                      </span>
                       <TypeBox type={editing ? draft.type : w.type} />
                       <span className="wid">{w.id}</span>
+                      {blockers.length > 0 && w.state !== "done" &&
+                        <span className="wi-blocked" title={`Blocked by ${blockers.join(", ")}`}>⛓</span>}
                       {editing
                         ? <input className="wi-inp" value={draft.title} autoFocus
                             onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
                             onKeyDown={(e) => { if (e.key === "Enter") saveEdit(w.id); if (e.key === "Escape") setEditingId(null); }} />
-                        : <span className="wit">{w.title}</span>}
+                        : <button className="wit wit-btn" title="Open details" onClick={() => onOpen(w.id)}>{w.title}</button>}
                       {editing
                         ? <>
                             <select className="wi-sel" value={draft.type} title="Type"
@@ -127,9 +137,14 @@ export function WorkItems({ item, snap, onCreate, onUpdate, onDelete }: WorkItem
                         onChange={(e) => {
                           const v = e.target.value as WiState;
                           if (editing) setDraft((d) => ({ ...d, state: v }));
-                          else onUpdate(w.id, { state: v });
+                          else onMove(w.id, v); // flow-checked engine transition
                         }}>
-                        {WI_STATE_OPTS.map((s) => <option key={s} value={s}>{WI_STATES[s].label}</option>)}
+                        {editing
+                          ? WI_STATE_OPTS.map((s) => <option key={s} value={s}>{WI_STATES[s].label}</option>)
+                          : <>
+                              <option value={w.state}>{WI_STATES[w.state].label}</option>
+                              {legalWiMoves(w).map((s) => <option key={s} value={s}>→ {WI_STATES[s].label}</option>)}
+                            </>}
                       </select>
                       {editing
                         ? <>
@@ -137,6 +152,7 @@ export function WorkItems({ item, snap, onCreate, onUpdate, onDelete }: WorkItem
                             <button className="wi-act" title="Cancel" onClick={() => setEditingId(null)}>✕</button>
                           </>
                         : <>
+                            <button className="wi-act" title="Open details" onClick={() => onOpen(w.id)}>↗</button>
                             <button className="wi-act" title="Edit" onClick={() => startEdit(w)}>✎</button>
                             <button className="wi-act del" title="Delete" onClick={() => onDelete(w.id)}>✕</button>
                           </>}

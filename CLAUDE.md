@@ -39,6 +39,8 @@ To change lifecycle behaviour, **edit the data tables, not the functions**:
 - `GATES` — conditions per gate; `base: "required"` must be satisfied, `base: "not_applicable"` + `conditional: true` are off by default.
 - `SHIFT_LEFT` — ticking a risk flips its mapped conditional conditions `not_applicable → required` (and reverts when unticked, unless already satisfied/waived). This is recomputed in a second pass inside `deriveItem`.
 - `SUBTRACK_FLOW` — `security`/`compliance` mini state machines (`pending→in_review→changes_requested↔in_review→approved`). They run concurrently and never block the spine; an `approved` sub-track **auto-satisfies** its linked release-gate condition.
+- `WI_FLOW_BASE` / `WI_FLOW_OVERRIDES` — per-type work-item workflows. `transitionWorkItem` is the flow-checked mover (also rejects a move to `done` while open `blocks` links point at the item — see `wiBlockedBy`); `updateWorkItem` stays a free-form admin edit, state included. The `work_complete` release condition is a **derived rollup**: auto-satisfied in `deriveItem` when every work item is `done` (vacuously true with none), reverting if one reopens — explicit satisfy/waive events always win.
+- Work items also carry `phase` (discovery/build/verify/release — board swimlane + spine bridge), `sprint`, `links` (`WI_LINK`/`WI_UNLINK` events; dangling links to tombstoned targets are dropped at derive time) and manual rank (`WI_REORDER` stores the full ordered id list; later creations append).
 
 ### UI ↔ engine loop (`src/components/App.tsx`)
 `App` holds `items: Item[]` in `useState` (seeded once from `buildSeed(Date.now())`) and the current `role` (`"PM" | "Dev"`). Every action follows the same pattern:
