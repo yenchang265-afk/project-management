@@ -22,21 +22,44 @@ Event-sourced core: the append-only event log is the single source of truth; cur
 
 ## Run
 
+Requires MariaDB (Docker or native) and Node 18+.
+
 ```bash
 npm install
-npm run dev    # http://localhost:3000
+cp .env.example .env.local        # then edit credentials
+
+# Option A: Docker
+docker compose up -d db           # MariaDB 11 on port 3307
+
+# Option B: native MariaDB — create databases + users:
+#   CREATE DATABASE cadence; CREATE USER 'cadence_admin'@'localhost' ...;
+#   (see .env.example for the URLs the app expects)
+
+npm run db:migrate                # apply migrations/ (admin connection)
+npm run db:seed                   # demo items + two logins (printed once)
+npm run dev                       # http://localhost:3000 → /login
 ```
+
+Seed logins: `maya@cadence.dev` (Product) and `sam@cadence.dev` (Engineering) —
+passwords printed by `db:seed`, overridable via `SEED_PM_PASSWORD` / `SEED_DEV_PASSWORD`.
 
 ## Verify
 
 ```bash
-npm test       # engine unit tests (vitest)
-npm run build  # production build
+npm test           # engine + command-layer unit tests; DB integration tests
+                   # run when DATABASE_ADMIN_URL is set (cadence_test schema)
+npm run build      # production build
+npm run test:e2e   # Playwright (serial; re-seeds via E2E-only reset endpoint)
 ```
+
+Known: `npm audit` reports dev-tooling advisories in the vitest/vite chain
+(never shipped to production); fixing requires a vitest major upgrade.
 
 ## Structure
 
-- `src/lib/engine.ts` — pure event-sourced state machine (no React/DOM)
-- `src/lib/seed.ts` — seed items as event logs
-- `src/components/` — UI components (port of the prototype, CSS verbatim in `app/globals.css`)
-- `app/` — Next.js App Router entry
+- `src/lib/engine.ts` — pure event-sourced state machine (no React/DOM); runs on BOTH client (render) and server (command validation)
+- `src/server/` — env, db pool, auth/sessions, zod command schemas + dispatcher, repositories (all SQL)
+- `app/api/` — route handlers: auth, items, the single command mutation endpoint
+- `migrations/` + `scripts/` — SQL migrations, migrate/seed runners (`db:migrate`, `db:seed`)
+- `src/lib/seed.ts` — demo fixture (also used by `db:seed` and the e2e reset)
+- `src/components/` — UI components (CSS in `app/globals.css`)

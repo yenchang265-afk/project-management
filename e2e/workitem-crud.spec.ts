@@ -1,9 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { workItemsCard, historyCard, historyCount, wiRow, wiCount, addWorkItem } from "./helpers";
+import { workItemsCard, historyCard, historyCount, wiRow, wiCount, addWorkItem, resetAndLogin } from "./helpers";
 
-// Every page load reseeds (no persistence), so each test starts from the same fixture:
+// resetAndLogin re-seeds the database per test, so each starts from the same fixture:
 // PAY-412 selected, 5 work items (PAY-418/419/420/421/423), 0 done.
 test.beforeEach(async ({ page }) => {
+  await resetAndLogin(page);
   await page.goto("/");
   await expect(wiCount(page)).toHaveText("0/5 done");
 });
@@ -77,9 +78,16 @@ test.describe("work item CRUD", () => {
   });
 
   test("both roles can create work items (no role guard)", async ({ page }) => {
-    await page.locator('.roleswitch button[data-role="Dev"]').click();
-    await addWorkItem(page, "Added as Dev");
+    // Phase 1: role comes from the account — sign in as the Dev seed user
+    await page.request.post("/api/auth/logout");
+    const login = await page.request.post("/api/auth/login", {
+      data: { email: "sam@cadence.dev", password: process.env.SEED_DEV_PASSWORD || "sam-dev-password" },
+    });
+    expect(login.ok()).toBeTruthy();
+    await page.goto("/");
+    await expect(page.locator(".who")).toContainText("Sam Okafor");
 
+    await addWorkItem(page, "Added as Dev");
     await expect(wiRow(page, "PAY-424")).toContainText("Added as Dev");
     await expect(wiCount(page)).toHaveText("0/6 done");
   });

@@ -571,3 +571,17 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .wi-link-row .wi-act{margin-left:auto;}
 .wi-link-add{display:flex;gap:6px;margin-top:7px;}
 .wi-link-add .wi-sel{flex:1;min-width:0;}
+
+/* ============ Phase 1: login + loading + session chrome ============ */
+.app-loading{display:flex;align-items:center;justify-content:center;height:100vh;color:var(--text-2);font-size:14px;background:var(--bg,var(--surface-2));}
+.app-loading.error{color:var(--danger,#d4423e);}
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--surface-2);}
+.login-card{display:flex;flex-direction:column;gap:14px;width:340px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;box-shadow:0 8px 30px rgba(0,0,0,.08);}
+.login-brand{margin-bottom:2px;}
+.login-card h1{font-size:18px;font-weight:700;color:var(--text);margin:0;}
+.login-card input{width:100%;font-size:13.5px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:9px 10px;outline:none;}
+.login-card input:focus{border-color:var(--accent);}
+.login-error{font-size:12.5px;color:var(--danger,#d4423e);background:color-mix(in oklch,var(--danger,#d4423e) 8%,var(--surface));border:1px solid color-mix(in oklch,var(--danger,#d4423e) 30%,var(--border));border-radius:8px;padding:8px 10px;}
+.login-btn{justify-content:center;}
+.who .kpill{margin-left:2px;}
+.who .logout{margin-left:6px;font-size:13px;}

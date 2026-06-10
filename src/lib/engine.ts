@@ -28,6 +28,9 @@ export type WiSeverity = 1 | 2 | 3 | 4; // 1 = Critical .. 4 = Low
 export type WiPhase = "discovery" | "build" | "verify" | "release";
 export type WiLinkType = "blocks" | "relates" | "duplicates";
 export interface WiLink { type: WiLinkType; target: string; }
+/** Wire/event form of a work-item patch: null means "clear this field".
+ *  (undefined doesn't survive JSON — DB payloads and HTTP both drop it.) */
+export type WiPatchWire = { [K in keyof WorkItem]?: WorkItem[K] | null };
 export type EventType =
   | "CREATE" | "TRANSITION" | "CONDITION_SATISFY" | "CONDITION_WAIVE"
   | "CONDITION_RESET" | "SHIFT_LEFT_SET" | "GATE_SIGNOFF" | "GATE_SIGNOFF_CLEAR"
@@ -88,7 +91,7 @@ export interface PdlcEvent {
   risk?: string;
   child?: string;
   wiId?: string;            // target work-item id (WI_CREATE / WI_UPDATE / WI_DELETE / WI_COMMENT / WI_LINK / WI_UNLINK)
-  wi?: Partial<WorkItem>;   // WI_CREATE: full fields · WI_UPDATE: patch
+  wi?: WiPatchWire;         // WI_CREATE: full fields · WI_UPDATE: patch (null = clear the field — JSON-safe)
   text?: string;            // WI_COMMENT body
   linkType?: WiLinkType;    // WI_LINK / WI_UNLINK
   linkTarget?: string;      // WI_LINK / WI_UNLINK: the other work item
@@ -369,14 +372,14 @@ export function deriveItem(item: Item): Snapshot {
             assignee: p.assignee ?? "",
           };
           // carry the optional detail fields when the create event supplies them
-          if (p.description !== undefined) created.description = p.description;
-          if (p.acceptanceCriteria !== undefined) created.acceptanceCriteria = p.acceptanceCriteria;
-          if (p.priority !== undefined) created.priority = p.priority;
-          if (p.storyPoints !== undefined) created.storyPoints = p.storyPoints;
-          if (p.severity !== undefined) created.severity = p.severity;
-          if (p.tags !== undefined) created.tags = normalizeTags(p.tags); // canonical + fresh array
-          if (p.phase !== undefined) created.phase = p.phase;
-          if (p.sprint !== undefined) created.sprint = p.sprint;
+          if (p.description != null) created.description = p.description;
+          if (p.acceptanceCriteria != null) created.acceptanceCriteria = p.acceptanceCriteria;
+          if (p.priority != null) created.priority = p.priority;
+          if (p.storyPoints != null) created.storyPoints = p.storyPoints;
+          if (p.severity != null) created.severity = p.severity;
+          if (p.tags != null) created.tags = normalizeTags(p.tags); // canonical + fresh array
+          if (p.phase != null) created.phase = p.phase;
+          if (p.sprint != null) created.sprint = p.sprint;
           workItems = [...workItems, created];
         }
         break;
@@ -384,7 +387,13 @@ export function deriveItem(item: Item): Snapshot {
         if (e.wiId)
           workItems = workItems.map((w) => {
             if (w.id !== e.wiId) return w;
-            const merged = { ...w, ...e.wi, id: w.id };
+            const merged: WorkItem = { ...w };
+            const m = merged as unknown as Record<string, unknown>;
+            for (const [k, v] of Object.entries(e.wi || {})) {
+              if (k === "id") continue;     // id is immutable
+              if (v === null) delete m[k];  // null = clear
+              else m[k] = v;
+            }
             // never alias the immutable event payload's array into derived state
             if (e.wi && Array.isArray(e.wi.tags)) merged.tags = [...e.wi.tags];
             return merged;
@@ -699,7 +708,9 @@ export function updateWorkItem(
     return { ok: false, error: `Invalid phase "${patch.phase}".` };
   // Effective patch = only the fields that actually change (id is immutable).
   // Keeps the log clean and honours the "wi = only changed fields" event convention.
-  const wi: Partial<WorkItem> = {};
+  // Cleared fields are stored as null in the event — JSON-safe (undefined would be
+  // silently dropped by the DB payload and the HTTP response).
+  const wi: WiPatchWire = {};
   if (patch.type !== undefined && patch.type !== cur.type) wi.type = patch.type;
   if (patch.state !== undefined && patch.state !== cur.state) wi.state = patch.state;
   if (patch.title !== undefined && patch.title.trim() !== cur.title) wi.title = patch.title.trim();
@@ -707,13 +718,13 @@ export function updateWorkItem(
   if (patch.description !== undefined && patch.description !== cur.description) wi.description = patch.description;
   if (patch.acceptanceCriteria !== undefined && patch.acceptanceCriteria !== cur.acceptanceCriteria) wi.acceptanceCriteria = patch.acceptanceCriteria;
   // nullable scalars: "key in patch" lets an explicit undefined clear a set value
-  if ("priority" in patch && patch.priority !== cur.priority) wi.priority = patch.priority;
-  if ("storyPoints" in patch && patch.storyPoints !== cur.storyPoints) wi.storyPoints = patch.storyPoints;
-  if ("severity" in patch && patch.severity !== cur.severity) wi.severity = patch.severity;
-  if ("phase" in patch && patch.phase !== cur.phase) wi.phase = patch.phase;
+  if ("priority" in patch && patch.priority !== cur.priority) wi.priority = patch.priority ?? null;
+  if ("storyPoints" in patch && patch.storyPoints !== cur.storyPoints) wi.storyPoints = patch.storyPoints ?? null;
+  if ("severity" in patch && patch.severity !== cur.severity) wi.severity = patch.severity ?? null;
+  if ("phase" in patch && patch.phase !== cur.phase) wi.phase = patch.phase ?? null;
   if ("sprint" in patch) {
     const v = (patch.sprint ?? "").trim() || undefined;
-    if (v !== cur.sprint) wi.sprint = v;
+    if (v !== cur.sprint) wi.sprint = v ?? null;
   }
   if (patch.tags !== undefined) {
     const norm = normalizeTags(patch.tags);

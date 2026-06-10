@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
-import { wiRow, historyCard } from "./helpers";
+import { wiRow, historyCard, resetAndLogin } from "./helpers";
 
-test.beforeEach(async ({ page }) => { await page.goto("/"); });
+test.beforeEach(async ({ page }) => { await resetAndLogin(page); await page.goto("/"); });
 
 async function openDrawer(page: Page, id: string) {
   await wiRow(page, id).locator('button.wi-act[title="Open details"]').click();

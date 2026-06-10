@@ -1,14 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
 
-/* E2E config for the Cadence prototype.
-   The app is pure client-side and in-memory: every page load reseeds from buildSeed(),
-   so each test starts from the same known fixture (PAY-412 selected, 5 work items). */
+/* E2E config for Cadence.
+   Phase 1: state persists in MariaDB. Each test re-seeds via the e2e-only
+   /api/test/reset endpoint and signs in as the seed PM (helpers.resetAndLogin),
+   so tests MUST run serially — parallel workers would clobber the shared fixture. */
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL: "http://localhost:3100",
@@ -23,5 +24,7 @@ export default defineConfig({
     url: "http://localhost:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // merge explicitly — Playwright replaces the child env when `env` is set
+    env: { ...process.env as Record<string, string>, E2E_TEST: "1" },
   },
 });

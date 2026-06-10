@@ -1,17 +1,21 @@
 "use client";
 
 /* =========================================================================
-   APP — composition, role-driven dispatch, event mutation.
+   APP — composition + server-backed event mutation.
+   All writes go through POST /api/items/:id/commands (the server runs the
+   same pure engine); the client appends the RETURNED event and re-derives.
+   409 (stale) → swap in the fresh item; 422 → typed rejection toast.
    ========================================================================= */
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  GATES, STATES,
-  applyTransition, commentWorkItem, createWorkItem, deleteWorkItem, deriveItem, ev, label,
-  linkWorkItems, reorderWorkItem, transitionWorkItem, unlinkWorkItems, updateWorkItem,
-  type FlagKey, type GateKey, type Item, type Rejection, type Role,
+  GATES, STATES, deriveItem, label,
+  type FlagKey, type GateKey, type Item, type PdlcEvent, type Rejection, type Role,
   type SubtrackState, type TrackKey, type TransitionDef, type WiLinkType, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
-import { buildSeed, type SeedData } from "@/lib/seed";
+import { buildSeed } from "@/lib/seed";
+import {
+  fetchItems, fetchMe, logout, postCommand, postSpawn, type ApiUser,
+} from "@/lib/api";
 import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
 import { Analytics } from "./Analytics";
@@ -28,10 +32,12 @@ import { Toasts, type Toast } from "./Toasts";
 import { WorkItems } from "./WorkItems";
 import { WorkItemDrawer } from "./WorkItemDrawer";
 
-const CURRENT_USER: Record<Role, string> = { PM: "Maya Chen", Dev: "Sam Okafor" };
-
 /* Prototype tweak defaults, baked in (the Tweaks panel was design-tool chrome). */
 const THEME = { accent: "#5b5fd6", density: "regular", dark: false };
+
+/* Org/group structure is still a static fixture — the hierarchy table is Phase 3.
+   buildSeed's ITEMS are ignored; the database is the source of truth for items. */
+const ORG_META = buildSeed(0);
 
 const LANE_FILTERS = [
   { key: "all", label: "All" },
@@ -54,10 +60,19 @@ function rejDetail(r: Rejection): string | null {
   }
 }
 
+/* JSON drops undefined keys, so "clear this field" travels as null (server converts back). */
+const CLEARABLE = ["priority", "storyPoints", "severity", "phase", "sprint"] as const;
+function toWire(patch: Partial<WorkItem>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...patch };
+  for (const k of CLEARABLE) if (k in patch && patch[k] === undefined) out[k] = null;
+  return out;
+}
+
 export default function App() {
-  const [seed] = useState<SeedData>(() => buildSeed(Date.now()));
-  const [items, setItems] = useState<Item[]>(() => seed.ITEMS.map((it) => ({ ...it, events: it.events.slice() })));
-  const [role, setRole] = useState<Role>("PM");
+  const [me, setMe] = useState<ApiUser | null>(null);
+  const [items, setItems] = useState<Item[] | null>(null);
+  const [versions, setVersions] = useState<Record<string, number>>({});
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selId, setSelId] = useState("PAY-412");
   const [view, setView] = useState<"detail" | "board">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
@@ -65,9 +80,14 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  const [org, setOrg] = useState(seed.org.name);
+  const [org, setOrg] = useState(ORG_META.org.name);
   const [orgOpen, setOrgOpen] = useState(false);
-  const GROUPS = seed.groups;
+  const GROUPS = ORG_META.groups;
+  // versionsRef mirrors `versions` so queued commands read the LATEST version, not a
+  // stale render closure; queues serialize commands per item (rapid edits would
+  // otherwise race each other into 409s).
+  const versionsRef = useRef<Record<string, number>>({});
+  const queues = useRef<Record<string, Promise<boolean>>>({});
 
   function toggleNode(k: string) {
     setCollapsed((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -81,13 +101,21 @@ export default function App() {
     r.style.setProperty("--accent", THEME.accent);
   }, []);
 
-  // NOTE: the drawer is keyed to (item, wiId); when selId changes the render guard below
-  // hides it automatically because no other item contains the open wiId (ids are prefixed).
-
-  const actor = CURRENT_USER[role];
-  const byId = Object.fromEntries(items.map((i) => [i.id, i]));
-  const item = byId[selId];
-  const snap = deriveItem(item);
+  // initial load: session user + items (401 inside the helpers redirects to /login)
+  useEffect(() => {
+    (async () => {
+      const meRes = await fetchMe();
+      if (!meRes.ok) { if (meRes.status !== 401) setLoadError(meRes.error); return; }
+      setMe(meRes.data.user);
+      const itemsRes = await fetchItems();
+      if (!itemsRes.ok) { setLoadError(itemsRes.error); return; }
+      setItems(itemsRes.data.items);
+      setVersions(itemsRes.data.versions);
+      versionsRef.current = { ...itemsRes.data.versions };
+      if (!itemsRes.data.items.some((i) => i.id === "PAY-412") && itemsRes.data.items[0])
+        setSelId(itemsRes.data.items[0].id);
+    })();
+  }, []);
 
   function pushToast(o: Omit<Toast, "id">) {
     const id = Date.now() + "_" + Math.random().toString(36).slice(2, 5);
@@ -95,22 +123,60 @@ export default function App() {
   }
   function dismiss(id: string) { setToasts((ts) => ts.filter((x) => x.id !== id)); }
 
-  function append(itemId: string, event: ReturnType<typeof ev>) {
-    setItems((its) => its.map((it) => (it.id === itemId ? { ...it, events: [...it.events, event] } : it)));
+  if (loadError) return <div className="app-loading error">⚠ {loadError}</div>;
+  if (!me || !items) return <div className="app-loading">Loading Cadence…</div>;
+
+  const role: Role = me.role;
+  const actor = me.name;
+  const byId = Object.fromEntries(items.map((i) => [i.id, i]));
+  const item = byId[selId] || items[0];
+  if (!item) return <div className="app-loading">No items yet.</div>;
+  const snap = deriveItem(item);
+
+  function applyServerEvent(itemId: string, event: PdlcEvent, version: number) {
+    setItems((its) => (its || []).map((it) => (it.id === itemId ? { ...it, events: [...it.events, event] } : it)));
+    setVersions((v) => ({ ...v, [itemId]: version }));
+    versionsRef.current[itemId] = version;
+  }
+  function replaceItem(fresh: Item, version: number) {
+    setItems((its) => (its || []).map((it) => (it.id === fresh.id ? fresh : it)));
+    setVersions((v) => ({ ...v, [fresh.id]: version }));
+    versionsRef.current[fresh.id] = version;
   }
 
-  /* ---- transition engine bridge ---- */
-  function doTransition(def: TransitionDef, reason: string | null) {
-    const res = applyTransition(item, def.to, actor, role, reason);
+  /** Send a command; resolve true on success. Commands for the same item are
+   *  serialized through a queue so rapid edits don't race into 409s. */
+  function sendCmd(itemId: string, command: unknown, okToast?: Omit<Toast, "id">): Promise<boolean> {
+    const prev = queues.current[itemId] || Promise.resolve(true);
+    const next = prev.then(() => sendNow(itemId, command, okToast), () => sendNow(itemId, command, okToast));
+    queues.current[itemId] = next;
+    return next;
+  }
+  async function sendNow(itemId: string, command: unknown, okToast?: Omit<Toast, "id">): Promise<boolean> {
+    const res = await postCommand(itemId, command, versionsRef.current[itemId] ?? byId[itemId]?.events.length ?? 0);
     if (res.ok) {
-      append(item.id, res.event);
-      pushToast({ ok: true, message: `${def.label} — now ${label(def.to)}`, detail: `${label(def.from)} → ${label(def.to)}` });
-    } else {
-      pushToast({ ok: false, type: res.rejection.type, message: res.rejection.message, detail: rejDetail(res.rejection) });
+      applyServerEvent(itemId, res.data.event, res.data.version);
+      if (okToast) pushToast(okToast);
+      return true;
     }
+    if (res.status === 409 && res.data) {
+      const d = res.data as { item: Item; version: number };
+      replaceItem(d.item, d.version);
+      pushToast({ ok: false, message: "Item changed elsewhere — view refreshed, try again." });
+      return false;
+    }
+    const rej = (res.data as { rejection?: Rejection } | undefined)?.rejection;
+    pushToast({ ok: false, type: rej?.type, message: res.error, detail: rej ? rejDetail(rej) : null });
+    return false;
   }
 
-  /* ---- condition / gate / subtrack / flag dispatch (role-guarded) ---- */
+  /* ---- transition bridge ---- */
+  function doTransition(def: TransitionDef, reason: string | null) {
+    void sendCmd(item.id, { kind: "transition", to: def.to, reason },
+      { ok: true, message: `${def.label} — now ${label(def.to)}`, detail: `${label(def.from)} → ${label(def.to)}` });
+  }
+
+  /* ---- client-side guard: instant feedback; the server re-enforces everything ---- */
   function guard(neededRole: Role, what: string) {
     if (role !== neededRole) {
       pushToast({ ok: false, type: "ROLE_GUARD", message: `Only ${neededRole} can ${what}.`, detail: `your role: ${role}` });
@@ -118,116 +184,90 @@ export default function App() {
     }
     return true;
   }
-  function satisfyCond(key: string) {
-    const c = findCond(key);
-    if (!guard(c.owner, `satisfy ${key}`)) return;
-    append(item.id, ev(item.id, "CONDITION_SATISFY", actor, role, { condition: key }));
-  }
-  function waiveCond(key: string) {
-    const c = findCond(key);
-    if (!guard(c.owner, `waive ${key}`)) return;
-    append(item.id, ev(item.id, "CONDITION_WAIVE", actor, role, { condition: key }));
-  }
-  function signoff(gate: GateKey, slot: Role) {
-    if (!guard(slot, `sign the ${slot} slot`)) return;
-    append(item.id, ev(item.id, "GATE_SIGNOFF", actor, role, { gate }));
-  }
-  function shiftLeft(risk: string, value: boolean) {
-    if (!guard("PM", "set risk flags")) return;
-    append(item.id, ev(item.id, "SHIFT_LEFT_SET", actor, role, { risk, value }));
-  }
-  function subtrack(track: TrackKey, to: SubtrackState) {
-    const owner: Role = track === "security" ? "Dev" : "PM";
-    if (!guard(owner, `advance the ${track} review`)) return;
-    append(item.id, ev(item.id, "SUBTRACK", actor, role, { track, to }));
-  }
-  function toggleFlag(flag: FlagKey) {
-    const on = !!snap.flags[flag];
-    const reason = on ? null : flag === "blocked" ? "Flagged blocked" : "Put on hold";
-    append(item.id, ev(item.id, "FLAG_SET", actor, role, { flag, value: !on, reason }));
-  }
   function findCond(key: string) {
     for (const g of Object.values(GATES)) { const c = g.conditions.find((x) => x.key === key); if (c) return c; }
     return { owner: "PM" as Role };
   }
-
-  /* ---- iteration loop: spawn a linked child ---- */
-  function spawnIteration() {
-    if (!guard("PM", "spawn the next iteration")) return;
-    const prefix = item.id.split("-")[0];
-    const childId = prefix + "-" + (500 + Math.floor(Math.random() * 480));
-    const child: Item = {
-      id: childId,
-      title: item.title.replace(/\s*\(iteration.*\)$/i, "") + " (next iteration)",
-      area: item.area, priority: "Medium", parent: item.id, type: "feature", workItems: [],
-      stakeholders: [
-        { role: "Product Manager", name: CURRENT_USER.PM },
-        { role: "Engineering Manager", name: "Marcus Lin" },
-        { role: "Tech Lead", name: CURRENT_USER.Dev },
-        { role: "Designer", name: "Lena Petrova" },
-      ],
-      events: [ev(childId, "CREATE", actor, role, { to: "backlog" })],
-    };
-    setItems((its) => [
-      ...its.map((it) => (it.id === item.id ? { ...it, events: [...it.events, ev(item.id, "SPAWN_CHILD", actor, role, { child: childId })] } : it)),
-      child,
-    ]);
-    setSelId(childId);
-    pushToast({ ok: true, message: `Spawned iteration ${childId}`, detail: `parent → ${item.id}` });
+  function satisfyCond(key: string) {
+    if (!guard(findCond(key).owner, `satisfy ${key}`)) return;
+    void sendCmd(item.id, { kind: "condition", op: "satisfy", key });
+  }
+  function waiveCond(key: string) {
+    if (!guard(findCond(key).owner, `waive ${key}`)) return;
+    void sendCmd(item.id, { kind: "condition", op: "waive", key });
+  }
+  function signoff(gate: GateKey, slot: Role) {
+    if (!guard(slot, `sign the ${slot} slot`)) return;
+    void sendCmd(item.id, { kind: "signoff", gate });
+  }
+  function shiftLeft(risk: string, value: boolean) {
+    if (!guard("PM", "set risk flags")) return;
+    void sendCmd(item.id, { kind: "shiftLeft", risk, value });
+  }
+  function subtrack(track: TrackKey, to: SubtrackState) {
+    const owner: Role = track === "security" ? "Dev" : "PM";
+    if (!guard(owner, `advance the ${track} review`)) return;
+    void sendCmd(item.id, { kind: "subtrack", track, to });
+  }
+  function toggleFlag(flag: FlagKey) {
+    const on = !!snap.flags[flag];
+    const reason = on ? null : flag === "blocked" ? "Flagged blocked" : "Put on hold";
+    void sendCmd(item.id, { kind: "flag", flag, value: !on, reason });
   }
 
-  /* ---- work item CRUD (both roles; validated in the engine) ---- */
-  function addWorkItem(draft: { type: WiType; title: string; assignee: string; state?: WiState }) {
-    const res = createWorkItem(item, snap, draft, actor, role);
+  /* ---- iteration loop: server creates the child + lineage event atomically ---- */
+  async function spawnIteration() {
+    if (!guard("PM", "spawn the next iteration")) return;
+    const res = await postSpawn(item.id, versions[item.id] ?? item.events.length);
     if (res.ok) {
-      append(item.id, res.event);
-      pushToast({ ok: true, message: `Added work item ${res.event.wiId}`, detail: draft.title });
-    } else pushToast({ ok: false, message: res.error });
+      const { child, parentEvent, parentVersion } = res.data;
+      setItems((its) => [...(its || []).map((it) => (it.id === item.id ? { ...it, events: [...it.events, parentEvent] } : it)), child]);
+      setVersions((v) => ({ ...v, [item.id]: parentVersion, [child.id]: child.events.length }));
+      setSelId(child.id);
+      pushToast({ ok: true, message: `Spawned iteration ${child.id}`, detail: `parent → ${item.id}` });
+    } else if (res.status === 409 && res.data) {
+      const d = res.data as { item: Item; version: number };
+      replaceItem(d.item, d.version);
+      pushToast({ ok: false, message: "Item changed elsewhere — view refreshed, try again." });
+    } else {
+      pushToast({ ok: false, message: res.error });
+    }
+  }
+
+  /* ---- work items (server-validated commands) ---- */
+  function addWorkItem(draft: { type: WiType; title: string; assignee: string; state?: WiState }) {
+    void sendCmd(item.id, { kind: "wiCreate", draft }, { ok: true, message: "Added work item", detail: draft.title });
   }
   function editWorkItem(wiId: string, patch: Partial<WorkItem>) {
-    const res = updateWorkItem(item, snap, wiId, patch, actor, role);
-    if (res.ok) append(item.id, res.event);
-    else pushToast({ ok: false, message: res.error });
+    void sendCmd(item.id, { kind: "wiUpdate", wiId, patch: toWire(patch) });
   }
   function removeWorkItem(wiId: string) {
-    const res = deleteWorkItem(item, snap, wiId, actor, role);
-    if (res.ok) {
-      append(item.id, res.event);
-      pushToast({ ok: true, message: `Removed work item ${wiId}` });
-    } else pushToast({ ok: false, message: res.error });
+    void sendCmd(item.id, { kind: "wiDelete", wiId }, { ok: true, message: `Removed work item ${wiId}` });
   }
   function commentOnWorkItem(wiId: string, text: string) {
-    const res = commentWorkItem(item, snap, wiId, text, actor, role);
-    if (res.ok) append(item.id, res.event);
-    else pushToast({ ok: false, message: res.error });
+    void sendCmd(item.id, { kind: "wiComment", wiId, text });
   }
-  /* flow-checked WI state move — works on any item (the board spans all of them) */
   function moveWorkItemOn(itemId: string, wiId: string, to: WiState) {
-    const it = byId[itemId];
-    if (!it) return;
-    const res = transitionWorkItem(it, deriveItem(it), wiId, to, actor, role);
-    if (res.ok) append(itemId, res.event);
-    else pushToast({ ok: false, message: res.error });
+    void sendCmd(itemId, { kind: "wiMove", wiId, to });
   }
   function moveWorkItem(wiId: string, to: WiState) { moveWorkItemOn(item.id, wiId, to); }
   function linkWi(wiId: string, type: WiLinkType, target: string) {
-    const res = linkWorkItems(item, snap, wiId, type, target, actor, role);
-    if (res.ok) append(item.id, res.event);
-    else pushToast({ ok: false, message: res.error });
+    void sendCmd(item.id, { kind: "wiLink", wiId, type, target });
   }
   function unlinkWi(wiId: string, type: WiLinkType, target: string) {
-    const res = unlinkWorkItems(item, snap, wiId, type, target, actor, role);
-    if (res.ok) append(item.id, res.event);
-    else pushToast({ ok: false, message: res.error });
+    void sendCmd(item.id, { kind: "wiUnlink", wiId, type, target });
   }
   function rankWi(wiId: string, toIndex: number) {
-    const res = reorderWorkItem(item, snap, wiId, toIndex, actor, role);
-    if (res.ok) append(item.id, res.event);
-    else pushToast({ ok: false, message: res.error });
+    void sendCmd(item.id, { kind: "wiReorder", wiId, toIndex });
   }
   function openFromBoard(itemId: string, wiId: string) {
     setSelId(itemId);
     setOpenWiId(wiId);
+  }
+
+  async function doLogout() {
+    await logout();
+    window.location.href = "/login";
   }
 
   /* ---- which gate to surface ---- */
@@ -237,8 +277,8 @@ export default function App() {
   const offSpine = STATES[snap.state] && STATES[snap.state].lane === "off";
 
   function laneCount(f: string) {
-    if (f === "all") return items.length;
-    return items.filter((it) => {
+    if (f === "all") return items!.length;
+    return items!.filter((it) => {
       const lane = STATES[deriveItem(it).state].lane;
       return f === "closed" ? lane === "closed" || lane === "off" : lane === f;
     }).length;
@@ -262,14 +302,11 @@ export default function App() {
           ))}
         </div>
         <div className="spacer"></div>
-        <div className="roleswitch">
-          {(["PM", "Dev"] as Role[]).map((r) => (
-            <button key={r} data-role={r} data-on={role === r} onClick={() => setRole(r)}>
-              <span className="dot"></span>{r === "PM" ? "Product" : "Engineering"}
-            </button>
-          ))}
+        <div className="who">
+          <Avatar name={actor} /> <span>{actor}</span>
+          <span className="kpill" data-role={role}>{role === "PM" ? "Product" : "Engineering"}</span>
+          <button className="wi-act logout" title="Sign out" onClick={doLogout}>⎋</button>
         </div>
-        <div className="who"><Avatar name={actor} /> <span>{actor}</span></div>
       </div>
 
       <div className="body">
@@ -280,7 +317,7 @@ export default function App() {
               <span className="org-glyph">{org[0]}</span>
               <span className="org-meta">
                 <span className="org-name">{org}</span>
-                <span className="org-sub">{seed.org.sub} · {items.length} items</span>
+                <span className="org-sub">{ORG_META.org.sub} · {items.length} items</span>
               </span>
               <span className="chev">▾</span>
             </button>
@@ -288,7 +325,7 @@ export default function App() {
               <div className="scrim" onClick={() => setOrgOpen(false)}></div>
               <div className="pop org-pop">
                 <div className="ph">Organization</div>
-                {seed.orgs.map((o) => (
+                {ORG_META.orgs.map((o) => (
                   <button key={o} onClick={() => { setOrg(o); setOrgOpen(false); }}>
                     <span className="org-glyph sm">{o[0]}</span>{o}
                     {o === org && <span style={{ marginLeft: "auto", color: "var(--ok)" }}>✓</span>}
@@ -413,7 +450,7 @@ export default function App() {
                 <Analytics item={item} />
               </div>
             </div>
-            <div className="foot-note">events are the single source of truth · current state, gates, flags &amp; analytics are all derived</div>
+            <div className="foot-note">events are the single source of truth · current state, gates, flags &amp; analytics are all derived · persisted in MariaDB</div>
           </div>
         </main>}
       </div>
