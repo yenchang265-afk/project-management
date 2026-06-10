@@ -8,7 +8,7 @@ import { runCommand, type Command, type CommandResult } from "../commands";
 
 interface ItemRow extends RowDataPacket {
   id: string; title: string; area: string; priority: Item["priority"];
-  parent: string | null; type: Item["type"];
+  parent: string | null; type: Item["type"]; project_id: string | null;
   stakeholders: unknown; work_items: unknown; plan: unknown;
 }
 interface EventRow extends RowDataPacket {
@@ -26,6 +26,7 @@ function rowToEvent(r: EventRow): PdlcEvent {
 function rowToItem(r: ItemRow, events: PdlcEvent[]): Item {
   return {
     id: r.id, title: r.title, area: r.area, priority: r.priority, parent: r.parent, type: r.type,
+    project: r.project_id,
     stakeholders: fromJson(r.stakeholders),
     workItems: fromJson(r.work_items),
     ...(r.plan != null ? { plan: fromJson<Item["plan"]>(r.plan) } : {}),
@@ -114,9 +115,10 @@ export async function spawnChild(
 
     const { child, parentEvent } = buildChild(loaded.item);
     await conn.query(
-      `INSERT INTO items (id, title, area, priority, parent, type, stakeholders, work_items, plan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO items (id, title, area, priority, parent, type, project_id, stakeholders, work_items, plan)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [child.id, child.title, child.area, child.priority, child.parent, child.type,
+       child.project ?? loaded.item.project ?? null,
        JSON.stringify(child.stakeholders), JSON.stringify(child.workItems || []),
        child.plan ? JSON.stringify(child.plan) : null]);
     for (const e of child.events) {

@@ -19,6 +19,8 @@ Event-sourced core: the append-only event log is the single source of truth; cur
 - Cross-feature kanban board (columns = WI states, swimlanes = features) with drag-drop + filters (text / type / phase / assignee / sprint)
 - WI links (blocks / relates / duplicates) with derived inverse display; open blockers gate the move to done
 - Manual backlog ranking (▲▼), phase binding (discovery/build/verify/release), sprint field
+- Project-based hierarchy: projects own items, teams own projects (M:N), teams contain users (M:N)
+- Scrum team spaces: members, owned projects, sprint picker, sprint board, ranked backlog, committed/done points
 
 ## Run
 

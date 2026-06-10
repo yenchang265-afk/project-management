@@ -2,7 +2,7 @@
    Uses the cadence_test database (never the dev one). Self-skips when no
    DATABASE_ADMIN_URL is available (e.g. CI without a DB service). */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import mysql, { type Connection } from "mysql2/promise";
 import "../../scripts/load-env";
@@ -23,15 +23,19 @@ describe.skipIf(!adminUrl)("repo/items against MariaDB (cadence_test)", () => {
 
   beforeAll(async () => {
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
-    // fresh schema: drop in FK order, re-apply 0001
+    // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["events", "sessions", "users", "items", "schema_migrations"])
+    for (const t of ["events", "sessions", "team_members", "project_teams", "teams", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
     await admin.query("SET FOREIGN_KEY_CHECKS=1");
-    await admin.query(readFileSync(join(process.cwd(), "migrations", "0001_init.sql"), "utf8"));
+    const dir = join(process.cwd(), "migrations");
+    for (const f of readdirSync(dir).filter((x) => x.endsWith(".sql")).sort())
+      await admin.query(readFileSync(join(dir, f), "utf8"));
 
     repo = await import("./repo/items");
     seedDb = await import("./seed-db");
+    await seedDb.seedUsers(admin);      // team_members FK
+    await seedDb.seedStructure(admin);  // projects/teams before items (items.project_id FK)
     await seedDb.seedItems(admin);
   });
 
@@ -48,6 +52,34 @@ describe.skipIf(!adminUrl)("repo/items against MariaDB (cadence_test)", () => {
     expect(pay.item.title).toContain("Apple Pay");
     expect(pay.version).toBe(pay.item.events.length);
     expect(pay.item.workItems.length).toBe(5);
+    expect(pay.item.project).toBe("prj-commerce"); // Phase 2: items belong to projects
+  });
+
+  it("getStructure returns projects with multi-team ownership and team memberships", async () => {
+    const { getStructure } = await import("./repo/structure");
+    const s = await getStructure();
+    expect(s.projects.length).toBe(4);
+    expect(s.teams.length).toBe(4);
+    const commerce = s.projects.find((p) => p.id === "prj-commerce")!;
+    expect(commerce.teamIds.sort()).toEqual(["team-checkout", "team-platform"]); // owned by TWO teams
+    const checkout = s.teams.find((t) => t.id === "team-checkout")!;
+    expect(checkout.members.map((m) => m.name).sort()).toEqual(["Maya Chen", "Sam Okafor"]);
+    expect(checkout.projectIds).toContain("prj-commerce");
+  });
+
+  it("spawned children inherit the parent's project", async () => {
+    const cur = (await repo.getItem("NOTIF-88"))!;
+    const { ev } = await import("../lib/engine");
+    const out = await repo.spawnChild("NOTIF-88", cur.version, "NOTIF-902", (parent) => ({
+      child: {
+        id: "NOTIF-902", title: "child", area: parent.area, priority: "Medium" as const,
+        parent: parent.id, type: "feature" as const, stakeholders: [], workItems: [],
+        events: [ev("NOTIF-902", "CREATE", "Maya Chen", "PM", { to: "backlog" })],
+      },
+      parentEvent: ev(parent.id, "SPAWN_CHILD", "Maya Chen", "PM", { child: "NOTIF-902" }),
+    }));
+    expect(out.status).toBe("ok");
+    expect((await repo.getItem("NOTIF-902"))!.item.project).toBe("prj-discovery");
   });
 
   it("applyCommand happy path appends exactly one event and bumps the version", async () => {

@@ -22,6 +22,24 @@ test.describe("smoke", () => {
     await expect(page.locator(".who .kpill")).toHaveText("Product");
   });
 
+  test("sidebar groups items by project; team space shows the scrum template", async ({ page }) => {
+    await resetAndLogin(page);
+    await page.goto("/");
+
+    // projects section: PAY-412 lives under Commerce Platform
+    await expect(page.locator(".nav-section").first()).toHaveText("Projects");
+    await expect(page.locator(".nav-glabel", { hasText: "Commerce Platform" })).toBeVisible();
+
+    // team space: scrum template with sprint board + backlog
+    await page.locator(".nav-teamrow", { hasText: "Checkout Crew" }).click();
+    await expect(page.locator(".teamspace h1")).toHaveText("Checkout Crew");
+    await expect(page.locator(".ts-proj", { hasText: "Commerce Platform" })).toBeVisible();
+    await expect(page.locator(".ts-member")).toHaveCount(2); // Maya + Sam
+    await expect(page.locator(".ts-sprintbar select")).toHaveValue("Sprint 24");
+    await expect(page.locator(".ts-board .board-card").first()).toBeVisible();
+    await expect(page.locator(".card-h h3", { hasText: "Backlog" })).toBeVisible();
+  });
+
   test("unauthenticated visit redirects to /login", async ({ page }) => {
     await page.context().clearCookies();
     await page.goto("/");

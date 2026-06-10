@@ -134,9 +134,10 @@ export interface Stakeholder {
 export interface Item {
   id: string;
   title: string;
-  area: string;
+  area: string;                  // display label only — grouping is by project
   priority: "High" | "Medium" | "Low";
   parent: string | null;
+  project?: string | null;       // owning project id (items.project_id)
   type: WiType;
   stakeholders: Stakeholder[];
   workItems: WorkItem[];

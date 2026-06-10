@@ -2,7 +2,7 @@
    Usage: npm run db:seed  (requires DATABASE_ADMIN_URL) */
 import "./load-env";
 import mysql from "mysql2/promise";
-import { seedItems, seedUsers } from "../src/server/seed-db";
+import { SEED_PROJECTS, SEED_TEAMS, seedItems, seedStructure, seedUsers } from "../src/server/seed-db";
 
 async function main() {
   const url = process.env.DATABASE_ADMIN_URL;
@@ -10,10 +10,11 @@ async function main() {
 
   const conn = await mysql.createConnection({ uri: url });
   try {
-    const n = await seedItems(conn);
-    const users = await seedUsers(conn);
-    console.log(`Seeded ${n} items.`);
-    console.log("Logins (override via SEED_PM_PASSWORD / SEED_DEV_PASSWORD):");
+    const users = await seedUsers(conn);       // users first (team_members FK)
+    await seedStructure(conn);                 // projects/teams + join tables
+    const n = await seedItems(conn);           // items reference projects
+    console.log(`Seeded ${n} items, ${SEED_PROJECTS.length} projects, ${SEED_TEAMS.length} teams.`);
+    console.log("Logins (override via SEED_*_PASSWORD):");
     for (const u of users) console.log(`  ${u.email} / ${u.password}`);
   } finally {
     await conn.end();

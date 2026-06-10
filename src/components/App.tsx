@@ -12,9 +12,9 @@ import {
   type FlagKey, type GateKey, type Item, type PdlcEvent, type Rejection, type Role,
   type SubtrackState, type TrackKey, type TransitionDef, type WiLinkType, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
-import { buildSeed } from "@/lib/seed";
 import {
-  fetchItems, fetchMe, logout, postCommand, postSpawn, type ApiUser,
+  fetchItems, fetchMe, fetchStructure, logout, postCommand, postSpawn,
+  type ApiUser, type Structure,
 } from "@/lib/api";
 import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
@@ -28,16 +28,13 @@ import { RequirementDocs } from "./docs";
 import { Spine } from "./Spine";
 import { Stakeholders } from "./Stakeholders";
 import { SubTracks } from "./SubTracks";
+import { TeamSpace } from "./TeamSpace";
 import { Toasts, type Toast } from "./Toasts";
 import { WorkItems } from "./WorkItems";
 import { WorkItemDrawer } from "./WorkItemDrawer";
 
 /* Prototype tweak defaults, baked in (the Tweaks panel was design-tool chrome). */
 const THEME = { accent: "#5b5fd6", density: "regular", dark: false };
-
-/* Org/group structure is still a static fixture — the hierarchy table is Phase 3.
-   buildSeed's ITEMS are ignored; the database is the source of truth for items. */
-const ORG_META = buildSeed(0);
 
 const LANE_FILTERS = [
   { key: "all", label: "All" },
@@ -71,18 +68,17 @@ function toWire(patch: Partial<WorkItem>): Record<string, unknown> {
 export default function App() {
   const [me, setMe] = useState<ApiUser | null>(null);
   const [items, setItems] = useState<Item[] | null>(null);
+  const [structure, setStructure] = useState<Structure | null>(null);
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selId, setSelId] = useState("PAY-412");
-  const [view, setView] = useState<"detail" | "board">("detail");
+  const [selTeamId, setSelTeamId] = useState<string | null>(null);
+  const [view, setView] = useState<"detail" | "board" | "team">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  const [org, setOrg] = useState(ORG_META.org.name);
-  const [orgOpen, setOrgOpen] = useState(false);
-  const GROUPS = ORG_META.groups;
   // versionsRef mirrors `versions` so queued commands read the LATEST version, not a
   // stale render closure; queues serialize commands per item (rapid edits would
   // otherwise race each other into 409s).
@@ -107,9 +103,11 @@ export default function App() {
       const meRes = await fetchMe();
       if (!meRes.ok) { if (meRes.status !== 401) setLoadError(meRes.error); return; }
       setMe(meRes.data.user);
-      const itemsRes = await fetchItems();
+      const [itemsRes, structRes] = await Promise.all([fetchItems(), fetchStructure()]);
       if (!itemsRes.ok) { setLoadError(itemsRes.error); return; }
+      if (!structRes.ok) { setLoadError(structRes.error); return; }
       setItems(itemsRes.data.items);
+      setStructure(structRes.data);
       setVersions(itemsRes.data.versions);
       versionsRef.current = { ...itemsRes.data.versions };
       if (!itemsRes.data.items.some((i) => i.id === "PAY-412") && itemsRes.data.items[0])
@@ -124,7 +122,7 @@ export default function App() {
   function dismiss(id: string) { setToasts((ts) => ts.filter((x) => x.id !== id)); }
 
   if (loadError) return <div className="app-loading error">⚠ {loadError}</div>;
-  if (!me || !items) return <div className="app-loading">Loading Cadence…</div>;
+  if (!me || !items || !structure) return <div className="app-loading">Loading Cadence…</div>;
 
   const role: Role = me.role;
   const actor = me.name;
@@ -132,6 +130,8 @@ export default function App() {
   const item = byId[selId] || items[0];
   if (!item) return <div className="app-loading">No items yet.</div>;
   const snap = deriveItem(item);
+  const selTeam = structure.teams.find((t) => t.id === selTeamId) || null;
+  const itemProject = structure.projects.find((p) => p.id === item.project) || null;
 
   function applyServerEvent(itemId: string, event: PdlcEvent, version: number) {
     setItems((its) => (its || []).map((it) => (it.id === itemId ? { ...it, events: [...it.events, event] } : it)));
@@ -264,6 +264,14 @@ export default function App() {
     setSelId(itemId);
     setOpenWiId(wiId);
   }
+  function selectItem(id: string) {
+    setSelId(id);
+    setView("detail");
+  }
+  function selectTeam(teamId: string) {
+    setSelTeamId(teamId);
+    setView("team");
+  }
 
   async function doLogout() {
     await logout();
@@ -300,6 +308,7 @@ export default function App() {
               {v === "detail" ? "▤ Details" : "▦ Board"}
             </button>
           ))}
+          {selTeam && <button data-on={view === "team"} onClick={() => setView("team")}>⟳ {selTeam.name}</button>}
         </div>
         <div className="spacer"></div>
         <div className="who">
@@ -313,26 +322,13 @@ export default function App() {
         {/* SIDEBAR */}
         <aside className="sidebar">
           <div className="org-wrap">
-            <button className="org-switch" onClick={() => setOrgOpen((o) => !o)}>
-              <span className="org-glyph">{org[0]}</span>
+            <div className="org-switch" style={{ cursor: "default" }}>
+              <span className="org-glyph">C</span>
               <span className="org-meta">
-                <span className="org-name">{org}</span>
-                <span className="org-sub">{ORG_META.org.sub} · {items.length} items</span>
+                <span className="org-name">Cadence</span>
+                <span className="org-sub">{structure.projects.length} projects · {structure.teams.length} teams · {items.length} items</span>
               </span>
-              <span className="chev">▾</span>
-            </button>
-            {orgOpen && <>
-              <div className="scrim" onClick={() => setOrgOpen(false)}></div>
-              <div className="pop org-pop">
-                <div className="ph">Organization</div>
-                {ORG_META.orgs.map((o) => (
-                  <button key={o} onClick={() => { setOrg(o); setOrgOpen(false); }}>
-                    <span className="org-glyph sm">{o[0]}</span>{o}
-                    {o === org && <span style={{ marginLeft: "auto", color: "var(--ok)" }}>✓</span>}
-                  </button>
-                ))}
-              </div>
-            </>}
+            </div>
           </div>
           <div className="side-head">
             <div className="nav-search">
@@ -349,7 +345,9 @@ export default function App() {
             </div>
           </div>
           <div className="itemtree scroll">
-            <Navigator groups={GROUPS} items={items} selId={selId} onSelect={setSelId}
+            <Navigator projects={structure.projects} teams={structure.teams} items={items}
+              selId={selId} selTeamId={view === "team" ? selTeamId : null}
+              onSelect={selectItem} onSelectTeam={selectTeam}
               filter={filter} search={query} collapsed={collapsed} onToggle={toggleNode} />
           </div>
         </aside>
@@ -360,12 +358,19 @@ export default function App() {
             <Board items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
           </main>}
 
+        {/* TEAM SPACE (scrum template) */}
+        {view === "team" && selTeam &&
+          <main className="detail board-main">
+            <TeamSpace team={selTeam} projects={structure.projects} items={items}
+              onMove={moveWorkItemOn} onOpen={openFromBoard} onSelectItem={selectItem} />
+          </main>}
+
         {/* DETAIL */}
         {view === "detail" && <main className="detail">
           <div className="detail-head">
             <div className="crumbs">
-              <span className="c">{org}</span><span className="sep">›</span>
-              <span className="c">{(GROUPS.find((g) => g.teams.includes(item.area)) || { label: "—" }).label}</span><span className="sep">›</span>
+              <span className="c">{itemProject ? itemProject.name : "No project"}</span>
+              <span className="sep">›</span>
               <span className="c">{item.area}</span>
               {item.parent && byId[item.parent] &&
                 <><span className="sep">›</span><button className="c link" onClick={() => setSelId(item.parent!)}>{item.parent}</button></>}

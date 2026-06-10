@@ -585,3 +585,33 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .login-btn{justify-content:center;}
 .who .kpill{margin-left:2px;}
 .who .logout{margin-left:6px;font-size:13px;}
+
+/* ============ Phase 2: project/team navigator + scrum team space ============ */
+.nav-section{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);padding:12px 10px 4px;}
+.nav-pkey{font-size:9.5px;font-weight:700;color:var(--accent);border:1px solid color-mix(in oklch,var(--accent) 35%,var(--border));border-radius:4px;padding:0 4px;margin-right:2px;}
+.nav-teamrow{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border-radius:8px;color:var(--text-2);font-size:12.5px;font-weight:600;transition:.12s var(--ease);}
+.nav-teamrow:hover{background:var(--surface-2);}
+.nav-teamrow[data-sel="true"]{background:color-mix(in oklch,var(--accent) 12%,var(--surface));color:var(--text);}
+.nav-teamglyph{width:20px;height:20px;border-radius:6px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;}
+.nav-teamavs{display:flex;margin-left:auto;}
+.nav-teamavs>*{margin-left:-5px;border:1.5px solid var(--surface);border-radius:50%;}
+
+.teamspace{display:flex;flex-direction:column;gap:14px;padding:16px 20px;flex:1;min-height:0;overflow-y:auto;}
+.ts-head{display:flex;align-items:flex-start;gap:14px;}
+.ts-glyph{width:44px;height:44px;font-size:20px;border-radius:12px;}
+.ts-id h1{font-size:20px;font-weight:750;margin:0 0 6px;}
+.ts-projects{display:flex;gap:6px;flex-wrap:wrap;}
+.ts-proj{font-size:11px;padding:3px 8px;}
+.ts-members{display:flex;flex-direction:column;gap:5px;align-items:flex-end;}
+.ts-member{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2);}
+.ts-mname{font-weight:600;color:var(--text);}
+.ts-card .card-h{gap:12px;}
+.ts-sprintbar{display:flex;align-items:center;gap:10px;flex:1;justify-content:flex-end;}
+.ts-stats{font-size:11px;color:var(--text-2);white-space:nowrap;}
+.ts-prog{width:120px;margin:0;}
+.ts-board{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:8px;}
+.ts-col{display:flex;flex-direction:column;gap:6px;background:color-mix(in oklch,var(--surface-2) 55%,transparent);border-radius:8px;padding:4px;}
+.ts-colbody{display:flex;flex-direction:column;gap:6px;min-height:40px;}
+.ts-itemlink{cursor:pointer;}
+.ts-itemlink:hover{border-color:var(--accent);color:var(--accent);}
+.ts-rowstate{font-size:10.5px;font-weight:700;margin-left:auto;white-space:nowrap;}

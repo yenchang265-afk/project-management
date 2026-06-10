@@ -29,8 +29,16 @@ async function call<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> 
   return { ok: true, data: body.data as T };
 }
 
+export interface ProjectInfo {
+  id: string; key: string; name: string; description: string | null; teamIds: string[];
+}
+export interface TeamMemberInfo { id: string; name: string; role: Role; }
+export interface TeamInfo { id: string; name: string; members: TeamMemberInfo[]; projectIds: string[]; }
+export interface Structure { projects: ProjectInfo[]; teams: TeamInfo[]; }
+
 export const fetchMe = () => call<{ user: ApiUser }>("/api/auth/me");
 export const fetchItems = () => call<{ items: Item[]; versions: Record<string, number> }>("/api/items");
+export const fetchStructure = () => call<Structure>("/api/structure");
 export const logout = () => call<Record<string, never>>("/api/auth/logout", { method: "POST" });
 
 export function postCommand(itemId: string, command: unknown, expectedVersion: number) {

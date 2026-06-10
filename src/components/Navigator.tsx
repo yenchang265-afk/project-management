@@ -2,9 +2,12 @@
 
 import React from "react";
 import { STATES, deriveItem, type Item } from "@/lib/engine";
-import { TypeBox, laneClass } from "./badges";
+import type { ProjectInfo, TeamInfo } from "@/lib/api";
+import { Avatar, TypeBox, laneClass } from "./badges";
 
-/* ---------------- NAVIGATOR (org → group → team → epic → feature tree) ---------------- */
+/* ---------------- NAVIGATOR (projects → epic → feature tree · teams) ----------------
+   Phase 2: grouping is by PROJECT (item.project), no longer by the static
+   org→group→team fixture. Teams are spaces, not item containers. */
 function navLaneOf(it: Item) {
   const st = deriveItem(it).state;
   return STATES[st].lane;
@@ -18,17 +21,20 @@ function navMatchLane(it: Item, filter: string) {
 }
 
 interface NavigatorProps {
-  groups: { key: string; label: string; teams: string[] }[];
+  projects: ProjectInfo[];
+  teams: TeamInfo[];
   items: Item[];
   selId: string;
+  selTeamId: string | null;
   onSelect: (id: string) => void;
+  onSelectTeam: (teamId: string) => void;
   filter: string;
   search: string;
   collapsed: Set<string>;
   onToggle: (key: string) => void;
 }
 
-export function Navigator({ groups, items, selId, onSelect, filter, search, collapsed, onToggle }: NavigatorProps) {
+export function Navigator({ projects, teams, items, selId, selTeamId, onSelect, onSelectTeam, filter, search, collapsed, onToggle }: NavigatorProps) {
   const q = (search || "").trim().toLowerCase();
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
   const matchText = (it: Item) => !q || it.id.toLowerCase().includes(q) || it.title.toLowerCase().includes(q);
@@ -37,9 +43,12 @@ export function Navigator({ groups, items, selId, onSelect, filter, search, coll
   const shown = new Set(matchSet);
   matches.forEach((it) => { let p = it.parent; while (p && byId[p]) { shown.add(p); p = byId[p].parent; } });
   const isOpen = (k: string) => !collapsed.has(k);
-  const teamShown = (team: string) => items.filter((it) => it.area === team && shown.has(it.id));
-  const teamCount = (team: string) => items.filter((it) => it.area === team && matchSet.has(it.id)).length;
+  const projectShown = (pid: string) => items.filter((it) => it.project === pid && shown.has(it.id));
+  const projectCount = (pid: string) => items.filter((it) => it.project === pid && matchSet.has(it.id)).length;
   const childrenOf = (id: string) => items.filter((it) => it.parent === id && shown.has(it.id));
+  // items whose project is unknown (or null) still need a home
+  const knownIds = new Set(projects.map((p) => p.id));
+  const orphanShown = items.filter((it) => (!it.project || !knownIds.has(it.project)) && shown.has(it.id));
 
   function renderItem(it: Item, depth: number): React.ReactNode {
     const kids = childrenOf(it.id);
@@ -67,40 +76,53 @@ export function Navigator({ groups, items, selId, onSelect, filter, search, coll
     );
   }
 
-  const visibleGroups = groups.filter((g) => g.teams.some((tm) => teamShown(tm).length));
-  if (!visibleGroups.length) return <div className="nav-empty">No items match.</div>;
+  function renderProject(p: ProjectInfo) {
+    const pk = "p:" + p.id;
+    const popen = isOpen(pk);
+    const tops = projectShown(p.id).filter((it) => !it.parent || !shown.has(it.parent));
+    if (!tops.length) return null;
+    const owners = teams.filter((t) => p.teamIds.includes(t.id)).map((t) => t.name).join(", ");
+    return (
+      <div className="nav-group" key={p.id}>
+        <button className="nav-head" data-lvl="0" onClick={() => onToggle(pk)} title={owners ? `Owned by ${owners}` : undefined}>
+          <span className="nav-chev" data-open={popen}>▸</span>
+          <span className="nav-pkey mono">{p.key}</span>
+          <span className="nav-glabel">{p.name}</span>
+          <span className="nav-count">{projectCount(p.id)}</span>
+        </button>
+        {popen && tops.map((it) => renderItem(it, 1))}
+      </div>
+    );
+  }
+
+  const anyProject = projects.some((p) => projectShown(p.id).length > 0);
   return (
     <div className="nav">
-      {visibleGroups.map((g) => {
-        const gk = "g:" + g.key;
-        const gopen = isOpen(gk);
-        const teams = g.teams.filter((tm) => teamShown(tm).length);
-        const gcount = teams.reduce((n, tm) => n + teamCount(tm), 0);
-        return (
-          <div className="nav-group" key={g.key}>
-            <button className="nav-head" data-lvl="0" onClick={() => onToggle(gk)}>
-              <span className="nav-chev" data-open={gopen}>▸</span>
-              <span className="nav-glabel">{g.label}</span>
-              <span className="nav-count">{gcount}</span>
-            </button>
-            {gopen && teams.map((tm) => {
-              const tk = "t:" + tm;
-              const topen = isOpen(tk);
-              const tops = teamShown(tm).filter((it) => !it.parent || !shown.has(it.parent));
-              return (
-                <div className="nav-team" key={tm}>
-                  <button className="nav-head" data-lvl="1" style={{ paddingLeft: 22 }} onClick={() => onToggle(tk)}>
-                    <span className="nav-chev" data-open={topen}>▸</span>
-                    <span className="nav-tlabel">{tm}</span>
-                    <span className="nav-count">{teamCount(tm)}</span>
-                  </button>
-                  {topen && tops.map((it) => renderItem(it, 2))}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
+      <div className="nav-section">Projects</div>
+      {!anyProject && !orphanShown.length && <div className="nav-empty">No items match.</div>}
+      {projects.map(renderProject)}
+      {orphanShown.length > 0 && (
+        <div className="nav-group" key="__none">
+          <button className="nav-head" data-lvl="0" onClick={() => onToggle("p:none")}>
+            <span className="nav-chev" data-open={isOpen("p:none")}>▸</span>
+            <span className="nav-glabel">No project</span>
+            <span className="nav-count">{orphanShown.length}</span>
+          </button>
+          {isOpen("p:none") && orphanShown.filter((it) => !it.parent || !shown.has(it.parent)).map((it) => renderItem(it, 1))}
+        </div>
+      )}
+
+      <div className="nav-section">Teams</div>
+      {teams.map((t) => (
+        <button className="nav-teamrow" key={t.id} data-sel={t.id === selTeamId} onClick={() => onSelectTeam(t.id)}>
+          <span className="nav-teamglyph">{t.name[0]}</span>
+          <span className="nav-tlabel">{t.name}</span>
+          <span className="nav-teamavs">
+            {t.members.slice(0, 3).map((m) => <Avatar key={m.id} name={m.name} size={16} />)}
+          </span>
+          <span className="nav-count">{t.members.length}</span>
+        </button>
+      ))}
     </div>
   );
 }
