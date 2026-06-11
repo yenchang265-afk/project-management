@@ -2,7 +2,7 @@
 
 import React from "react";
 import { STATES, deriveItem, type Item } from "@/lib/engine";
-import type { ProjectInfo, TeamInfo } from "@/lib/api";
+import type { OrgInfo, ProjectInfo, TeamInfo } from "@/lib/api";
 import { Avatar, TypeBox, laneClass } from "./badges";
 
 /* ---------------- NAVIGATOR (projects → epic → feature tree · teams) ----------------
@@ -21,21 +21,25 @@ function navMatchLane(it: Item, filter: string) {
 }
 
 interface NavigatorProps {
-  mode: "projects" | "teams";
+  mode: "projects" | "org";
+  meId: string;
+  orgs: OrgInfo[];
   projects: ProjectInfo[];
   teams: TeamInfo[];
   items: Item[];
   selId: string;
   selTeamId: string | null;
+  selOrgId: string | null;
   onSelect: (id: string) => void;
   onSelectTeam: (teamId: string) => void;
+  onSelectOrg: (orgId: string) => void;
   filter: string;
   search: string;
   collapsed: Set<string>;
   onToggle: (key: string) => void;
 }
 
-export function Navigator({ mode, projects, teams, items, selId, selTeamId, onSelect, onSelectTeam, filter, search, collapsed, onToggle }: NavigatorProps) {
+export function Navigator({ mode, meId, orgs, projects, teams, items, selId, selTeamId, selOrgId, onSelect, onSelectTeam, onSelectOrg, filter, search, collapsed, onToggle }: NavigatorProps) {
   const q = (search || "").trim().toLowerCase();
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
   const matchText = (it: Item) => !q || it.id.toLowerCase().includes(q) || it.title.toLowerCase().includes(q);
@@ -98,21 +102,66 @@ export function Navigator({ mode, projects, teams, items, selId, selTeamId, onSe
 
   const anyProject = projects.some((p) => projectShown(p.id).length > 0);
 
-  if (mode === "teams") {
+  if (mode === "org") {
+    const teamById = Object.fromEntries(teams.map((t) => [t.id, t]));
+    const myOrgIds = new Set(teams.filter((t) => t.orgId && t.members.some((m) => m.id === meId)).map((t) => t.orgId as string));
+    const matchOrg = (name: string) => !q || name.toLowerCase().includes(q);
+    const mine = orgs.filter((o) => myOrgIds.has(o.id) && matchOrg(o.name));
+    const others = orgs.filter((o) => !myOrgIds.has(o.id) && matchOrg(o.name));
+    const orgless = teams.filter((t) => !t.orgId);
+
+    const orgRow = (o: OrgInfo) => {
+      const k = "o:" + o.id;
+      const open = isOpen(k);
+      const visTeams = o.teamIds.map((id) => teamById[id]).filter(Boolean) as TeamInfo[];
+      return (
+        <div className="nav-group" key={o.id}>
+          <button className="nav-head" data-lvl="0" data-sel={o.id === selOrgId && !selTeamId} onClick={() => onSelectOrg(o.id)}>
+            <span className="nav-chev" data-open={open && visTeams.length > 0}
+              onClick={(e) => { e.stopPropagation(); onToggle(k); }}>▸</span>
+            <span className="nav-glabel">{o.name}</span>
+            <span className="nav-count">{o.teamIds.length}</span>
+          </button>
+          {open && visTeams.map((t) => (
+            <button className="nav-teamrow nav-org-team" key={t.id} data-sel={t.id === selTeamId}
+              onClick={() => onSelectTeam(t.id)} title={`Open ${t.name} team space`}>
+              <span className="nav-teamglyph">{t.name[0]}</span>
+              <span className="nav-tlabel">{t.name}</span>
+              <span className="nav-count">{t.members.length}</span>
+            </button>
+          ))}
+        </div>
+      );
+    };
+
     return (
       <div className="nav">
-        <div className="nav-section">Teams</div>
-        {teams.map((t) => (
-          <button className="nav-teamrow" key={t.id} data-sel={t.id === selTeamId} onClick={() => onSelectTeam(t.id)}>
-            <span className="nav-teamglyph">{t.name[0]}</span>
-            <span className="nav-tlabel">{t.name}</span>
-            <span className="nav-teamavs">
-              {t.members.slice(0, 3).map((m) => <Avatar key={m.id} name={m.name} size={16} />)}
-            </span>
-            <span className="nav-count">{t.members.length}</span>
-          </button>
-        ))}
-        {!teams.length && <div className="nav-empty">No teams.</div>}
+        <div className="nav-section">My orgs</div>
+        {mine.map(orgRow)}
+        {!mine.length && <div className="nav-empty">{q ? "No match." : "You don’t belong to any org."}</div>}
+        {(others.length > 0 || (q && !mine.length)) && <>
+          <div className="nav-section">Other orgs</div>
+          {others.map(orgRow)}
+          {!others.length && <div className="nav-empty">No match.</div>}
+        </>}
+        {orgless.length > 0 && matchOrg("unassigned") && (
+          <div className="nav-group" key="__unassigned">
+            <button className="nav-head" data-lvl="0" data-sel={selOrgId === "__unassigned" && !selTeamId} onClick={() => onSelectOrg("__unassigned")}>
+              <span className="nav-chev" data-open={isOpen("o:__unassigned")}
+                onClick={(e) => { e.stopPropagation(); onToggle("o:__unassigned"); }}>▸</span>
+              <span className="nav-glabel">Unassigned</span>
+              <span className="nav-count">{orgless.length}</span>
+            </button>
+            {isOpen("o:__unassigned") && orgless.map((t) => (
+              <button className="nav-teamrow nav-org-team" key={t.id} data-sel={t.id === selTeamId}
+                onClick={() => onSelectTeam(t.id)} title={`Open ${t.name} team space`}>
+                <span className="nav-teamglyph">{t.name[0]}</span>
+                <span className="nav-tlabel">{t.name}</span>
+                <span className="nav-count">{t.members.length}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }

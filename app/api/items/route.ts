@@ -3,9 +3,11 @@ import { z } from "zod";
 import { ev, type Item } from "@/lib/engine";
 import { withAuth } from "@/server/auth";
 import { getAllItems, spawnChild } from "@/server/repo/items";
+import { getScope, itemInScope } from "@/server/scope";
 
-export const GET = withAuth(async () => {
-  const rows = await getAllItems();
+export const GET = withAuth(async (_req, user) => {
+  const scope = await getScope(user);
+  const rows = (await getAllItems()).filter((r) => itemInScope(r.item.project ?? null, scope));
   return NextResponse.json({
     success: true,
     data: {

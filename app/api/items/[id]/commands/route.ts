@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/server/auth";
 import { CommandRequestSchema } from "@/server/commands";
-import { applyCommand } from "@/server/repo/items";
+import { applyCommand, getItem } from "@/server/repo/items";
+import { getScope, itemInScope } from "@/server/scope";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /** THE mutation endpoint: validate intent, run the engine server-side, append the event. */
 export const POST = withAuth<Ctx>(async (req, user, ctx) => {
   const { id } = await ctx.params;
+
+  // access gate: out-of-scope items are 404 (can't read, can't mutate)
+  const found = await getItem(id);
+  if (!found || !itemInScope(found.item.project ?? null, await getScope(user)))
+    return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
 
   let body: unknown;
   try { body = await req.json(); } catch {

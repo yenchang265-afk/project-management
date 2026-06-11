@@ -13,15 +13,16 @@ import {
   type SubtrackState, type TrackKey, type TransitionDef, type WiLinkType, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import {
-  assignItemProject, createProject, createTeam, fetchItems, fetchMe, fetchStructure, fetchUsers,
-  logout, postCommand, postSpawn, teamMemberOp, teamProjectOp,
-  type ApiUser, type Structure, type TeamMemberInfo,
+  assignItemProject, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
+  fetchAnnouncements, fetchItems, fetchMe, fetchStructure, fetchUsers,
+  logout, postCommand, postSpawn, renameOrg, setTeamOrg, teamMemberOp, teamProjectOp,
+  type AnnouncementInfo, type AnnouncementScope, type ApiUser, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
 import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
 import { Analytics } from "./Analytics";
 import { Board } from "./Board";
-import { CompanyView } from "./CompanyView";
+import { DashboardView } from "./DashboardView";
 import { OrgView } from "./OrgView";
 import { GateInspector } from "./GateInspector";
 import { History } from "./History";
@@ -73,8 +74,14 @@ export default function App() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [structure, setStructure] = useState<Structure | null>(null);
   const [users, setUsers] = useState<TeamMemberInfo[]>([]);
-  const [adminModal, setAdminModal] = useState<"project" | "team" | null>(null);
+  const [adminModal, setAdminModal] = useState<"project" | "team" | "org" | null>(null);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const [announcements, setAnnouncements] = useState<AnnouncementInfo[]>([]);
+  const [annModal, setAnnModal] = useState(false);
+  const [annScope, setAnnScope] = useState<AnnouncementScope>("company");
+  const [annTarget, setAnnTarget] = useState("");
+  const [annTitle, setAnnTitle] = useState("");
+  const [annBody, setAnnBody] = useState("");
   const [draftName, setDraftName] = useState("");
   const [draftKey, setDraftKey] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
@@ -82,8 +89,9 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selId, setSelId] = useState("PAY-412");
   const [selTeamId, setSelTeamId] = useState<string | null>(null);
-  // top-level workspace, each isolated: Company (rollup) · Org (structure) · Projects · Teams.
-  const [mode, setMode] = useState<"company" | "org" | "projects" | "teams">("projects");
+  const [selOrgId, setSelOrgId] = useState<string | null>(null);
+  // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
+  const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
   const [view, setView] = useState<"detail" | "board">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
@@ -114,12 +122,13 @@ export default function App() {
       const meRes = await fetchMe();
       if (!meRes.ok) { if (meRes.status !== 401) setLoadError(meRes.error); return; }
       setMe(meRes.data.user);
-      const [itemsRes, structRes, usersRes] = await Promise.all([fetchItems(), fetchStructure(), fetchUsers()]);
+      const [itemsRes, structRes, usersRes, annRes] = await Promise.all([fetchItems(), fetchStructure(), fetchUsers(), fetchAnnouncements()]);
       if (!itemsRes.ok) { setLoadError(itemsRes.error); return; }
       if (!structRes.ok) { setLoadError(structRes.error); return; }
       setItems(itemsRes.data.items);
       setStructure(structRes.data);
       if (usersRes.ok) setUsers(usersRes.data.users);
+      if (annRes.ok) setAnnouncements(annRes.data.announcements);
       setVersions(itemsRes.data.versions);
       versionsRef.current = { ...itemsRes.data.versions };
       if (!itemsRes.data.items.some((i) => i.id === "PAY-412") && itemsRes.data.items[0])
@@ -281,9 +290,25 @@ export default function App() {
     setMode("projects");
     setView("detail");
   }
+  // selecting a team opens its TeamSpace inside the Organization workspace
   function selectTeam(teamId: string) {
+    const t = structure?.teams.find((x) => x.id === teamId);
+    setSelOrgId(t?.orgId ?? "__unassigned");
     setSelTeamId(teamId);
-    setMode("teams");
+    setMode("org");
+  }
+  function selectOrg(orgId: string) {
+    setSelOrgId(orgId);
+    setSelTeamId(null); // org node selected — leave the team space
+    setMode("org");
+  }
+  // default org selection = first org I belong to (fall back to first org)
+  function enterOrgMode() {
+    setMode("org");
+    if (!selOrgId && structure) {
+      const myOrg = structure.teams.find((t) => t.orgId && t.members.some((m) => m.id === me!.id))?.orgId;
+      setSelOrgId(myOrg ?? structure.orgs[0]?.id ?? null);
+    }
   }
 
   /* ---- Phase 3 admin (server enforces PM; client guard is UX only) ---- */
@@ -300,7 +325,7 @@ export default function App() {
       versionsRef.current = { ...r.data.versions };
     }
   }
-  function openAdminModal(kind: "project" | "team") {
+  function openAdminModal(kind: "project" | "team" | "org") {
     setDraftName(""); setDraftKey(""); setDraftDesc("");
     setNewMenuOpen(false);
     setAdminModal(kind);
@@ -310,6 +335,8 @@ export default function App() {
     if (!name) return;
     const res = adminModal === "project"
       ? await createProject(draftKey.trim().toUpperCase(), name, draftDesc.trim() || null)
+      : adminModal === "org"
+      ? await createOrg(name)
       : await createTeam(name);
     if (res.ok) {
       await refreshStructure();
@@ -328,6 +355,54 @@ export default function App() {
     const r = await teamProjectOp(teamId, projectId, op);
     if (r.ok) await refreshStructure();
     else pushToast({ ok: false, message: r.error });
+  }
+  async function teamOrgOp(teamId: string, orgId: string | null) {
+    const r = await setTeamOrg(teamId, orgId);
+    if (r.ok) await refreshStructure();
+    else pushToast({ ok: false, message: r.error });
+  }
+  async function orgRename(orgId: string, name: string) {
+    const r = await renameOrg(orgId, name);
+    if (r.ok) { await refreshStructure(); pushToast({ ok: true, message: "Organization renamed" }); }
+    else pushToast({ ok: false, message: r.error });
+  }
+  async function orgDelete(orgId: string) {
+    const r = await deleteOrg(orgId);
+    if (r.ok) {
+      await Promise.all([refreshStructure(), refreshAnnouncements()]);
+      setSelOrgId(null); // deleted org was selected — drop back to the picker state
+      pushToast({ ok: true, message: "Organization deleted — its teams are now unassigned" });
+    } else pushToast({ ok: false, message: r.error });
+  }
+  async function refreshAnnouncements() {
+    const r = await fetchAnnouncements();
+    if (r.ok) setAnnouncements(r.data.announcements);
+  }
+  function openAnnModal() {
+    setAnnScope("company"); setAnnTarget(""); setAnnTitle(""); setAnnBody("");
+    setNewMenuOpen(false); setAnnModal(true);
+  }
+  async function submitAnnouncement() {
+    const title = annTitle.trim();
+    if (!title) return;
+    if (annScope !== "company" && !annTarget) { pushToast({ ok: false, message: "Pick a target." }); return; }
+    const r = await createAnnouncement(annScope, annScope === "company" ? null : annTarget, title, annBody.trim() || null);
+    if (r.ok) {
+      await refreshAnnouncements();
+      pushToast({ ok: true, message: "Announcement posted" });
+      setAnnModal(false);
+    } else pushToast({ ok: false, message: r.error });
+  }
+  async function removeAnnouncement(id: string) {
+    const r = await deleteAnnouncement(id);
+    if (r.ok) await refreshAnnouncements();
+    else pushToast({ ok: false, message: r.error });
+  }
+  // resolve an announcement's target name for display (org/team)
+  function annName(a: AnnouncementInfo): string | null {
+    if (a.scopeType === "org") return structure?.orgs.find((o) => o.id === a.scopeId)?.name ?? null;
+    if (a.scopeType === "team") return structure?.teams.find((t) => t.id === a.scopeId)?.name ?? null;
+    return null;
   }
   async function assignProject(itemId: string, projectId: string | null) {
     const r = await assignItemProject(itemId, projectId);
@@ -369,13 +444,9 @@ export default function App() {
           <span>Cadence</span>
         </div>
         <div className="modeswitch">
-          <button data-on={mode === "company"} onClick={() => setMode("company")}>⬡ Company</button>
-          <button data-on={mode === "org"} onClick={() => setMode("org")}>⤜ Org</button>
+          <button data-on={mode === "dashboard"} onClick={() => setMode("dashboard")}>⬡ Dashboard</button>
+          <button data-on={mode === "org"} onClick={enterOrgMode}>⤜ Organization</button>
           <button data-on={mode === "projects"} onClick={() => setMode("projects")}>▤ Projects</button>
-          <button data-on={mode === "teams"}
-            onClick={() => { setMode("teams"); if (!selTeamId && structure.teams[0]) setSelTeamId(structure.teams[0].id); }}>
-            ◴ Teams
-          </button>
         </div>
         {mode === "projects" &&
           <div className="viewswitch">
@@ -395,6 +466,12 @@ export default function App() {
             {newMenuOpen && <>
               <div className="newmenu-scrim" onClick={() => setNewMenuOpen(false)}></div>
               <div className="newmenu-pop" role="menu">
+                <button role="menuitem" onClick={openAnnModal}>
+                  <span className="nm-ic mono">📣</span> Announcement
+                </button>
+                <button role="menuitem" onClick={() => openAdminModal("org")}>
+                  <span className="nm-ic mono">⤜</span> Organization
+                </button>
                 <button role="menuitem" onClick={() => openAdminModal("project")}>
                   <span className="nm-ic mono">▤</span> Project
                 </button>
@@ -412,8 +489,8 @@ export default function App() {
       </div>
 
       <div className="body">
-        {/* SIDEBAR — only the item/team workspaces have a nav rail */}
-        {(mode === "projects" || mode === "teams") &&
+        {/* SIDEBAR — organization/item workspaces have a nav rail (dashboard is full-width) */}
+        {(mode === "projects" || mode === "org") &&
         <aside className="sidebar">
           <div className="org-wrap">
             <div className="org-switch" style={{ cursor: "default" }}>
@@ -424,54 +501,58 @@ export default function App() {
               </span>
             </div>
           </div>
-          {mode === "projects" && <div className="side-head">
+          {(mode === "projects" || mode === "org") && <div className="side-head">
             <div className="nav-search">
               <span className="ns-ic">⌕</span>
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search items…" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)}
+                placeholder={mode === "org" ? "Search all orgs…" : "Search items…"} />
               {query && <button className="ns-x" onClick={() => setQuery("")}>×</button>}
             </div>
-            <div className="lanefilter">
+            {mode === "projects" && <div className="lanefilter">
               {LANE_FILTERS.map((f) => (
                 <button key={f.key} data-on={filter === f.key} onClick={() => setFilter(f.key)}>
                   {f.label} <span className="mono" style={{ opacity: 0.6 }}>{laneCount(f.key)}</span>
                 </button>
               ))}
-            </div>
+            </div>}
           </div>}
           <div className="itemtree scroll">
-            <Navigator mode={mode} projects={structure.projects} teams={structure.teams} items={items}
-              selId={selId} selTeamId={mode === "teams" ? selTeamId : null}
-              onSelect={selectItem} onSelectTeam={selectTeam}
+            <Navigator mode={mode} meId={me.id} orgs={structure.orgs} projects={structure.projects} teams={structure.teams} items={items}
+              selId={selId} selTeamId={mode === "org" ? selTeamId : null} selOrgId={mode === "org" ? selOrgId : null}
+              onSelect={selectItem} onSelectTeam={selectTeam} onSelectOrg={selectOrg}
               filter={filter} search={query} collapsed={collapsed} onToggle={toggleNode} />
           </div>
         </aside>}
 
-        {/* COMPANY — rollup dashboard across all projects (isolated) */}
-        {mode === "company" &&
-          <CompanyView projects={structure.projects} teams={structure.teams} items={items} />}
+        {/* DASHBOARD — personalized default landing (admin sees full company rollup) */}
+        {mode === "dashboard" &&
+          <DashboardView me={me} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
+            items={items} announcements={announcements} canManage={isPM}
+            onDeleteAnn={removeAnnouncement} annName={annName}
+            onSelectItem={selectItem} onOpenWork={openFromBoard} />}
 
-        {/* ORG — people/ownership structure chart (isolated) */}
-        {mode === "org" &&
-          <OrgView projects={structure.projects} teams={structure.teams} />}
+        {/* ORGANIZATION — tree selects an org (org detail/management) or a team (full TeamSpace) */}
+        {mode === "org" && selTeam &&
+          <main className="detail board-main">
+            <TeamSpace team={selTeam} orgs={structure.orgs} projects={structure.projects} items={items}
+              users={users} canManage={isPM}
+              onMove={moveWorkItemOn} onOpen={openFromBoard} onSelectItem={selectItem}
+              onMemberOp={(u, op) => memberOp(selTeam.id, u, op)}
+              onProjectOp={(p, op) => projectOp(selTeam.id, p, op)}
+              onSetOrg={(orgId) => teamOrgOp(selTeam.id, orgId)}
+              announcements={announcements.filter((a) => a.scopeType === "team" && a.scopeId === selTeam.id)}
+              onDeleteAnn={removeAnnouncement} />
+          </main>}
+        {mode === "org" && !selTeam &&
+          <OrgView meId={me.id} selOrgId={selOrgId} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
+            items={items} announcements={announcements} canManage={isPM} onDeleteAnn={removeAnnouncement}
+            onOpenWork={openFromBoard} onSelectTeam={selectTeam}
+            onRenameOrg={orgRename} onDeleteOrg={orgDelete} />}
 
         {/* BOARD */}
         {mode === "projects" && view === "board" &&
           <main className="detail board-main">
             <Board items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
-          </main>}
-
-        {/* TEAM SPACE (scrum template) — isolated Teams workspace */}
-        {mode === "teams" && selTeam &&
-          <main className="detail board-main">
-            <TeamSpace team={selTeam} projects={structure.projects} items={items}
-              users={users} canManage={isPM}
-              onMove={moveWorkItemOn} onOpen={openFromBoard} onSelectItem={selectItem}
-              onMemberOp={(u, op) => memberOp(selTeam.id, u, op)}
-              onProjectOp={(p, op) => projectOp(selTeam.id, p, op)} />
-          </main>}
-        {mode === "teams" && !selTeam &&
-          <main className="detail board-main">
-            <div className="app-loading">Select a team.</div>
           </main>}
 
         {/* DETAIL */}
@@ -578,15 +659,16 @@ export default function App() {
       {adminModal && <>
         <div className="wi-drawer-scrim" onClick={() => setAdminModal(null)}></div>
         <div className="admin-modal" role="dialog" aria-modal="true" aria-label={`New ${adminModal}`}>
-          <h2>New {adminModal}</h2>
+          <h2>New {adminModal === "org" ? "organization" : adminModal}</h2>
           {adminModal === "project" &&
             <label className="wi-field block"><span>Key</span>
               <input value={draftKey} maxLength={8} placeholder="e.g. PAY" autoFocus
                 onChange={(e) => setDraftKey(e.target.value.toUpperCase())} />
             </label>}
           <label className="wi-field block"><span>Name</span>
-            <input value={draftName} maxLength={128} placeholder={adminModal === "project" ? "Project name" : "Team name"}
-              autoFocus={adminModal === "team"}
+            <input value={draftName} maxLength={128}
+              placeholder={adminModal === "project" ? "Project name" : adminModal === "org" ? "Organization name" : "Team name"}
+              autoFocus={adminModal === "team" || adminModal === "org"}
               onChange={(e) => setDraftName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") submitAdminModal(); if (e.key === "Escape") setAdminModal(null); }} />
           </label>
@@ -599,6 +681,48 @@ export default function App() {
             <button className="wi-act" onClick={() => setAdminModal(null)}>Cancel</button>
             <button className="act primary" onClick={submitAdminModal}
               disabled={!draftName.trim() || (adminModal === "project" && draftKey.trim().length < 2)}>Create</button>
+          </div>
+        </div>
+      </>}
+
+      {annModal && <>
+        <div className="wi-drawer-scrim" onClick={() => setAnnModal(false)}></div>
+        <div className="admin-modal" role="dialog" aria-modal="true" aria-label="New announcement">
+          <h2>📣 New announcement</h2>
+          <label className="wi-field block"><span>Scope</span>
+            <select className="wi-sel" value={annScope}
+              onChange={(e) => { setAnnScope(e.target.value as AnnouncementScope); setAnnTarget(""); }}>
+              <option value="company">Company (everyone)</option>
+              <option value="org">Organization</option>
+              <option value="team">Team</option>
+            </select>
+          </label>
+          {annScope === "org" &&
+            <label className="wi-field block"><span>Organization</span>
+              <select className="wi-sel" value={annTarget} onChange={(e) => setAnnTarget(e.target.value)}>
+                <option value="">Pick an org…</option>
+                {structure.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </label>}
+          {annScope === "team" &&
+            <label className="wi-field block"><span>Team</span>
+              <select className="wi-sel" value={annTarget} onChange={(e) => setAnnTarget(e.target.value)}>
+                <option value="">Pick a team…</option>
+                {structure.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>}
+          <label className="wi-field block"><span>Title</span>
+            <input value={annTitle} maxLength={160} placeholder="Announcement title" autoFocus
+              onChange={(e) => setAnnTitle(e.target.value)} />
+          </label>
+          <label className="wi-field block"><span>Message</span>
+            <textarea value={annBody} rows={3} maxLength={2000} placeholder="Optional details"
+              onChange={(e) => setAnnBody(e.target.value)} />
+          </label>
+          <div className="admin-modal-foot">
+            <button className="wi-act" onClick={() => setAnnModal(false)}>Cancel</button>
+            <button className="act primary" onClick={submitAnnouncement}
+              disabled={!annTitle.trim() || (annScope !== "company" && !annTarget)}>Post</button>
           </div>
         </div>
       </>}

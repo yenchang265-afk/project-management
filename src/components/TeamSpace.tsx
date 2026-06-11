@@ -2,13 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { deriveItem, wiBlockedBy, type Item, type WiState, type WorkItem } from "@/lib/engine";
-import type { ProjectInfo, TeamInfo, TeamMemberInfo } from "@/lib/api";
+import type { AnnouncementInfo, OrgInfo, ProjectInfo, TeamInfo, TeamMemberInfo } from "@/lib/api";
 import { Avatar, TypeBox, WI_STATES } from "./badges";
+import { RecentWork } from "./RecentWork";
+import { Announcements } from "./Announcements";
 
 const COLUMNS: WiState[] = ["todo", "in_progress", "in_review", "blocked", "done"];
 
 interface TeamSpaceProps {
   team: TeamInfo;
+  orgs: OrgInfo[];
   projects: ProjectInfo[];
   items: Item[];
   users: TeamMemberInfo[];
@@ -18,6 +21,9 @@ interface TeamSpaceProps {
   onSelectItem: (id: string) => void;
   onMemberOp: (userId: string, op: "add" | "remove") => void;
   onProjectOp: (projectId: string, op: "add" | "remove") => void;
+  onSetOrg: (orgId: string | null) => void;
+  announcements: AnnouncementInfo[];
+  onDeleteAnn: (id: string) => void;
 }
 
 interface TeamWi extends WorkItem { itemId: string; itemTitle: string; blockedBy: string[]; }
@@ -25,7 +31,8 @@ interface TeamWi extends WorkItem { itemId: string; itemTitle: string; blockedBy
 /* ---------------- TEAM SPACE — scrum template ----------------
    Members · owned projects · sprint picker · sprint board (flow-checked drags)
    · ranked backlog (work items with no sprint) · committed/done points. */
-export function TeamSpace({ team, projects, items, users, canManage, onMove, onOpen, onSelectItem, onMemberOp, onProjectOp }: TeamSpaceProps) {
+export function TeamSpace({ team, orgs, projects, items, users, canManage, onMove, onOpen, onSelectItem, onMemberOp, onProjectOp, onSetOrg, announcements, onDeleteAnn }: TeamSpaceProps) {
+  const orgName = orgs.find((o) => o.id === team.orgId)?.name ?? "Unassigned";
   const memberIds = new Set(team.members.map((m) => m.id));
   const addableUsers = users.filter((u) => !memberIds.has(u.id));
   const addableProjects = projects.filter((p) => !team.projectIds.includes(p.id));
@@ -95,6 +102,16 @@ export function TeamSpace({ team, projects, items, users, canManage, onMove, onO
         <span className="org-glyph ts-glyph">{team.name[0]}</span>
         <div className="ts-id">
           <h1>{team.name}</h1>
+          <div className="ts-org">
+            <span className="ts-org-l mono">ORG</span>
+            {canManage
+              ? <select className="wi-sel ts-org-sel" value={team.orgId ?? ""}
+                  onChange={(e) => onSetOrg(e.target.value || null)} title="Move team to organization">
+                  <option value="">Unassigned</option>
+                  {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              : <span className="ts-org-name">{orgName}</span>}
+          </div>
           <div className="ts-projects">
             {owned.map((p) => (
               <span className="board-chip ts-proj" key={p.id} title={p.description || ""}>
@@ -129,6 +146,11 @@ export function TeamSpace({ team, projects, items, users, canManage, onMove, onO
             </select>}
         </div>
       </div>
+
+      {announcements.length > 0 &&
+        <div className="ts-ann">
+          <Announcements items={announcements} canManage={canManage} onDelete={onDeleteAnn} title={`Announcements · ${team.name}`} />
+        </div>}
 
       {/* sprint board */}
       <div className="card ts-card">
@@ -187,6 +209,10 @@ export function TeamSpace({ team, projects, items, users, canManage, onMove, onO
                 ))}
               </div>}
         </div>
+      </div>
+
+      <div className="ts-recent">
+        <RecentWork items={teamItems} onOpen={onOpen} limit={6} />
       </div>
 
       <div className="foot-note">scrum template · sprint board pulls from {owned.map((p) => p.key).join(" + ") || "—"} · moves are flow-checked by the engine</div>

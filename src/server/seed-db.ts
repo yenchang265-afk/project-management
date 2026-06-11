@@ -23,12 +23,28 @@ export const SEED_PROJECTS = [
   { id: "prj-onboarding", key: "ONB", name: "Onboarding Experience", description: "First-run and activation flows", prefixes: ["ONB"] },
 ];
 
+// Company (Cadence) → orgs → teams. Strict tree: each team belongs to one org.
+export const SEED_ORGS = [
+  { id: "org-platform", name: "Platform Org" },
+  { id: "org-growth", name: "Growth Org" },
+];
+
+// scope_id: null = company-wide · org id · team id
+export const SEED_ANNOUNCEMENTS = [
+  { id: "ann-seed-1", scope_type: "company" as const, scope_id: null, author: "Maya Chen",
+    title: "Q3 planning kickoff Monday", body: "All-hands at 10:00. Come with your top three priorities for the quarter." },
+  { id: "ann-seed-2", scope_type: "org" as const, scope_id: "org-platform", author: "Maya Chen",
+    title: "Platform infra freeze next week", body: "No production infra changes Mon–Wed while we migrate the primary cluster." },
+  { id: "ann-seed-3", scope_type: "team" as const, scope_id: "team-checkout", author: "Maya Chen",
+    title: "Checkout standup moved to 10:00", body: "Starting this sprint, daily standup shifts 30 minutes later." },
+];
+
 export const SEED_TEAMS = [
   // multi-team ownership: Commerce and Identity are each owned by two teams
-  { id: "team-checkout", name: "Checkout Crew", projects: ["prj-commerce"], members: ["maya@cadence.dev", "sam@cadence.dev"] },
-  { id: "team-identity", name: "Identity Core", projects: ["prj-identity"], members: ["lena@cadence.dev", "sam@cadence.dev"] },
-  { id: "team-growth", name: "Growth Guild", projects: ["prj-discovery", "prj-onboarding"], members: ["maya@cadence.dev", "priya@cadence.dev"] },
-  { id: "team-platform", name: "Platform Foundation", projects: ["prj-commerce", "prj-identity"], members: ["sam@cadence.dev", "priya@cadence.dev"] },
+  { id: "team-checkout", name: "Checkout Crew", org: "org-platform", projects: ["prj-commerce"], members: ["maya@cadence.dev", "sam@cadence.dev"] },
+  { id: "team-identity", name: "Identity Core", org: "org-growth", projects: ["prj-identity"], members: ["lena@cadence.dev", "sam@cadence.dev"] },
+  { id: "team-growth", name: "Growth Guild", org: "org-growth", projects: ["prj-discovery", "prj-onboarding"], members: ["maya@cadence.dev", "priya@cadence.dev"] },
+  { id: "team-platform", name: "Platform Foundation", org: "org-platform", projects: ["prj-commerce", "prj-identity"], members: ["sam@cadence.dev", "priya@cadence.dev"] },
 ];
 
 export function projectForItem(itemId: string): string | null {
@@ -88,8 +104,10 @@ export async function seedUsers(conn: Connection): Promise<{ email: string; pass
 export async function resetStructure(conn: Connection): Promise<void> {
   await conn.query("DELETE FROM project_teams");
   await conn.query("DELETE FROM team_members");
-  await conn.query("DELETE FROM teams");
+  await conn.query("DELETE FROM teams");           // teams reference organizations
+  await conn.query("DELETE FROM organizations");
   await conn.query("DELETE FROM projects");
+  await conn.query("DELETE FROM announcements");
   await seedStructure(conn);
 }
 
@@ -102,10 +120,17 @@ export async function seedStructure(conn: Connection): Promise<void> {
       [p.id, p.key, p.name, p.description]
     );
   }
+  for (const o of SEED_ORGS) {                       // orgs before teams (teams.org_id FK)
+    await conn.query(
+      `INSERT INTO organizations (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+      [o.id, o.name]
+    );
+  }
   for (const t of SEED_TEAMS) {
     await conn.query(
-      `INSERT INTO teams (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)`,
-      [t.id, t.name]
+      `INSERT INTO teams (id, name, org_id) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE name = VALUES(name), org_id = VALUES(org_id)`,
+      [t.id, t.name, t.org]
     );
   }
   await conn.query("DELETE FROM project_teams");
@@ -118,5 +143,12 @@ export async function seedStructure(conn: Connection): Promise<void> {
         "INSERT INTO team_members (team_id, user_id) SELECT ?, id FROM users WHERE email = ?",
         [t.id, email]
       );
+  }
+  for (const a of SEED_ANNOUNCEMENTS) {
+    await conn.query(
+      `INSERT INTO announcements (id, scope_type, scope_id, title, body, author) VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE title = VALUES(title), body = VALUES(body), scope_type = VALUES(scope_type), scope_id = VALUES(scope_id)`,
+      [a.id, a.scope_type, a.scope_id, a.title, a.body, a.author]
+    );
   }
 }
