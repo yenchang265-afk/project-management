@@ -31,6 +31,7 @@ import { History } from "./History";
 import { ItemComments } from "./ItemComments";
 import { ItemLinks } from "./ItemLinks";
 import { ListView } from "./ListView";
+import { TimelineView } from "./TimelineView";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -99,7 +100,7 @@ export default function App() {
   const [selOrgId, setSelOrgId] = useState<string | null>(null);
   // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
   const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
-  const [view, setView] = useState<"detail" | "board" | "list">("detail");
+  const [view, setView] = useState<"detail" | "board" | "list" | "timeline">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -547,9 +548,9 @@ export default function App() {
         </div>
         {mode === "projects" &&
           <div className="viewswitch">
-            {(["detail", "board", "list"] as const).map((v) => (
+            {(["detail", "board", "list", "timeline"] as const).map((v) => (
               <button key={v} data-on={view === v} onClick={() => setView(v)}>
-                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : "☰ List"}
+                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : v === "list" ? "☰ List" : "⇶ Timeline"}
               </button>
             ))}
           </div>}
@@ -697,6 +698,12 @@ export default function App() {
         {mode === "projects" && view === "list" &&
           <main className="detail board-main">
             <ListView items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
+          </main>}
+
+        {/* TIMELINE */}
+        {mode === "projects" && view === "timeline" &&
+          <main className="detail board-main">
+            <TimelineView items={items} onSelect={(id) => { setSelId(id); setView("detail"); }} />
           </main>}
 
         {/* DETAIL */}
