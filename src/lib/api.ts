@@ -33,8 +33,15 @@ export interface ProjectInfo {
   id: string; key: string; name: string; description: string | null; teamIds: string[];
 }
 export interface TeamMemberInfo { id: string; name: string; role: Role; }
-export interface TeamInfo { id: string; name: string; members: TeamMemberInfo[]; projectIds: string[]; }
-export interface Structure { projects: ProjectInfo[]; teams: TeamInfo[]; }
+export interface TeamInfo { id: string; name: string; orgId: string | null; members: TeamMemberInfo[]; projectIds: string[]; }
+export interface OrgInfo { id: string; name: string; teamIds: string[]; }
+export interface Structure { orgs: OrgInfo[]; projects: ProjectInfo[]; teams: TeamInfo[]; }
+
+export type AnnouncementScope = "company" | "org" | "team";
+export interface AnnouncementInfo {
+  id: string; scopeType: AnnouncementScope; scopeId: string | null;
+  title: string; body: string | null; author: string; createdAt: string;
+}
 
 export const fetchMe = () => call<{ user: ApiUser }>("/api/auth/me");
 export const fetchItems = () => call<{ items: Item[]; versions: Record<string, number> }>("/api/items");
@@ -63,6 +70,30 @@ export const createProject = (key: string, name: string, description: string | n
 
 export const createTeam = (name: string) =>
   call<{ id: string }>("/api/teams", { method: "POST", body: JSON.stringify({ name }) });
+
+export const createOrg = (name: string) =>
+  call<{ id: string }>("/api/orgs", { method: "POST", body: JSON.stringify({ name }) });
+
+export const renameOrg = (id: string, name: string) =>
+  call<Record<string, never>>(`/api/orgs/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify({ name }),
+  });
+
+export const deleteOrg = (id: string) =>
+  call<Record<string, never>>(`/api/orgs/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const setTeamOrg = (teamId: string, orgId: string | null) =>
+  call<Record<string, never>>(`/api/teams/${encodeURIComponent(teamId)}/org`, {
+    method: "PATCH", body: JSON.stringify({ orgId }),
+  });
+
+export const fetchAnnouncements = () => call<{ announcements: AnnouncementInfo[] }>("/api/announcements");
+
+export const createAnnouncement = (scopeType: AnnouncementScope, scopeId: string | null, title: string, body: string | null) =>
+  call<{ id: string }>("/api/announcements", { method: "POST", body: JSON.stringify({ scopeType, scopeId, title, body }) });
+
+export const deleteAnnouncement = (id: string) =>
+  call<Record<string, never>>(`/api/announcements/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export const teamMemberOp = (teamId: string, userId: string, op: "add" | "remove") =>
   call<Record<string, never>>(`/api/teams/${encodeURIComponent(teamId)}/members`, {

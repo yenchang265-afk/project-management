@@ -68,12 +68,32 @@ export function sessionCookieOptions(expires: Date) {
   };
 }
 
+/* ---------- dev auth bypass ---------- */
+/** Local-dev escape hatch: with DEV_AUTH_BYPASS=1 and a non-production NODE_ENV,
+ *  unauthenticated requests resolve to a real seed PM user so no login is needed.
+ *  Double-gated (env flag AND not production) so it can never activate in prod. */
+function devBypassEnabled(): boolean {
+  return env().NODE_ENV !== "production" && process.env.DEV_AUTH_BYPASS === "1";
+}
+
+async function devBypassUser(): Promise<AuthedUser | null> {
+  // Pick a real PM row so id/name/role are valid for downstream writes.
+  const [rows] = await pool().query<RowDataPacket[]>(
+    "SELECT id, email, name, role FROM users WHERE role = 'PM' ORDER BY email LIMIT 1");
+  const u = rows[0];
+  if (!u) return null;
+  console.warn(`[auth] DEV_AUTH_BYPASS active — acting as ${u.email} (${u.role}). Never enable in production.`);
+  return { id: u.id, email: u.email, name: u.name, role: u.role as Role };
+}
+
 /* ---------- route guard ---------- */
 export async function currentUser(): Promise<AuthedUser | null> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  return sessionUser(token);
+  if (!token) return devBypassEnabled() ? devBypassUser() : null;
+  const user = await sessionUser(token);
+  if (user) return user;
+  return devBypassEnabled() ? devBypassUser() : null;
 }
 
 type Handler<C> = (req: Request, user: AuthedUser, ctx: C) => Promise<NextResponse>;
