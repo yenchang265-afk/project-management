@@ -643,6 +643,20 @@ export const ITEM_LINK_LABELS: Record<ItemLinkKind, { out: string; in: string }>
   duplicates: { out: "duplicates",    in: "duplicated by" },
 };
 
+/** All inbound links pointing at `item`, for display (every kind, any state —
+ *  unlike itemBlockedBy, which only counts OPEN `blocks` sources). Pure;
+ *  callers pass the full item list. Sorted by source id, then link kind. */
+export function itemInboundLinks(item: Item, all: Item[]): { from: string; linkKind: ItemLinkKind }[] {
+  return all
+    .filter((other) => other.id !== item.id)
+    .flatMap((other) =>
+      deriveItem(other).links
+        .filter((l) => l.to === item.id)
+        .map((l) => ({ from: other.id, linkKind: l.linkKind })),
+    )
+    .sort((a, b) => (a.from === b.from ? a.linkKind.localeCompare(b.linkKind) : a.from.localeCompare(b.from)));
+}
+
 /** Ids of OPEN items (not done / closed-lane) whose snapshot carries a `blocks`
  *  link pointing at `item`. Pure; callers pass the full item list. */
 export function itemBlockedBy(item: Item, all: Item[]): string[] {

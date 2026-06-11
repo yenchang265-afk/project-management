@@ -7,6 +7,7 @@ import {
   legalTransitions,
   applyTransition,
   itemBlockedBy,
+  itemInboundLinks,
   timeInState,
   reworkRate,
   leadTime,
@@ -423,5 +424,67 @@ describe("itemBlockedBy", () => {
       E(1, "ITEM_UNLINK", { to: "TEST-A", linkKind: "blocks" }),
     ]);
     expect(itemBlockedBy(a, [a, b])).toEqual([]);
+  });
+});
+
+describe("itemInboundLinks", () => {
+  function namedItem(id: string, events: PdlcEvent[]): Item {
+    return { ...makeItem(events.map((e) => ({ ...e, item: id }))), id };
+  }
+
+  it("returns empty when no other item links at the item", () => {
+    const a = namedItem("TEST-A", [E(2, "CREATE", { to: "backlog" })]);
+    const b = namedItem("TEST-B", [E(2, "CREATE", { to: "backlog" })]);
+    expect(itemInboundLinks(a, [a, b])).toEqual([]);
+  });
+
+  it("returns {from, linkKind} for every kind pointing at the item, in id order", () => {
+    const a = namedItem("TEST-A", [E(4, "CREATE", { to: "backlog" })]);
+    const b = namedItem("TEST-B", [
+      E(4, "CREATE", { to: "backlog" }),
+      E(3, "ITEM_LINK", { to: "TEST-A", linkKind: "blocks" }),
+      E(2, "ITEM_LINK", { to: "TEST-A", linkKind: "relates" }),
+    ]);
+    const c = namedItem("TEST-C", [
+      E(4, "CREATE", { to: "backlog" }),
+      E(3, "ITEM_LINK", { to: "TEST-A", linkKind: "duplicates" }),
+    ]);
+    expect(itemInboundLinks(a, [c, b, a])).toEqual([
+      { from: "TEST-B", linkKind: "blocks" },
+      { from: "TEST-B", linkKind: "relates" },
+      { from: "TEST-C", linkKind: "duplicates" },
+    ]);
+  });
+
+  it("ignores links aimed at other items and never includes the item itself", () => {
+    const a = namedItem("TEST-A", [
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_LINK", { to: "TEST-B", linkKind: "blocks" }),
+    ]);
+    const b = namedItem("TEST-B", [
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_LINK", { to: "TEST-C", linkKind: "relates" }),
+    ]);
+    expect(itemInboundLinks(a, [a, b])).toEqual([]);
+  });
+
+  it("unlike itemBlockedBy, a done (closed-lane) source still shows for display", () => {
+    const a = namedItem("TEST-A", [E(3, "CREATE", { to: "backlog" })]);
+    const b = namedItem("TEST-B", [
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_LINK", { to: "TEST-A", linkKind: "blocks" }),
+      E(1, "TRANSITION", { from: "monitoring", to: "done", kind: "forward" }),
+    ]);
+    expect(itemInboundLinks(a, [a, b])).toEqual([{ from: "TEST-B", linkKind: "blocks" }]);
+  });
+
+  it("an unlinked source disappears", () => {
+    const a = namedItem("TEST-A", [E(3, "CREATE", { to: "backlog" })]);
+    const b = namedItem("TEST-B", [
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_LINK", { to: "TEST-A", linkKind: "relates" }),
+      E(1, "ITEM_UNLINK", { to: "TEST-A", linkKind: "relates" }),
+    ]);
+    expect(itemInboundLinks(a, [a, b])).toEqual([]);
   });
 });

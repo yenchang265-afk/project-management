@@ -9,7 +9,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   GATES, STATES, deriveItem, label,
-  type FlagKey, type GateKey, type Item, type PdlcEvent, type Rejection, type Role,
+  type FlagKey, type GateKey, type Item, type ItemLinkKind, type PdlcEvent, type Rejection, type Role,
   type SubtrackState, type TrackKey, type TransitionDef, type WiLinkType, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import {
@@ -29,6 +29,7 @@ import { OrgView } from "./OrgView";
 import { GateInspector } from "./GateInspector";
 import { History } from "./History";
 import { ItemComments } from "./ItemComments";
+import { ItemLinks } from "./ItemLinks";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -303,6 +304,12 @@ export default function App() {
   }
   function commentOnItem(text: string) {
     void sendCmd(item.id, { kind: "item_comment", text });
+  }
+  function linkItem(to: string, linkKind: ItemLinkKind) {
+    void sendCmd(item.id, { kind: "item_link", to, linkKind });
+  }
+  function unlinkItem(to: string, linkKind: ItemLinkKind) {
+    void sendCmd(item.id, { kind: "item_unlink", to, linkKind });
   }
   function moveWorkItemOn(itemId: string, wiId: string, to: WiState) {
     void sendCmd(itemId, { kind: "wiMove", wiId, to });
@@ -779,6 +786,7 @@ export default function App() {
                   teamIds={itemProject?.teamIds ?? []}
                   onCreate={addWorkItem} onUpdate={editWorkItem} onDelete={removeWorkItem} onOpen={setOpenWiId}
                   onMove={moveWorkItem} onReorder={rankWi} onBulkUpdate={(ids, patch) => void bulkEditWis(ids, patch)} />
+                <ItemLinks item={item} snap={snap} all={items ?? []} onLink={linkItem} onUnlink={unlinkItem} />
                 <ItemComments snap={snap} onComment={commentOnItem} />
                 <History item={item} />
                 <Analytics item={item} />
