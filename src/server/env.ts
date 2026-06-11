@@ -7,6 +7,7 @@ const EnvSchema = z.object({
   SESSION_SECRET: z.string().min(32, "SESSION_SECRET must be at least 32 characters"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   E2E_TEST: z.string().optional(), // "1" enables the test-only reset endpoint
+  DEV_AUTH_BYPASS: z.string().optional(), // "1" skips login in local dev (never honored in production)
 });
 
 export type Env = z.infer<typeof EnvSchema>;
