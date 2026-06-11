@@ -14,10 +14,11 @@ import {
 } from "@/lib/engine";
 import {
   assignItemProject, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
-  fetchAnnouncements, fetchItems, fetchMe, fetchStructure, fetchUsers,
-  logout, postCommand, postSpawn, renameOrg, setTeamOrg, teamMemberOp, teamProjectOp,
-  type AnnouncementInfo, type AnnouncementScope, type ApiUser, type Structure, type TeamMemberInfo,
+  fetchAnnouncements, fetchItems, fetchMe, fetchNotifications, fetchStructure, fetchUsers,
+  logout, markNotificationsRead, postCommand, postSpawn, renameOrg, setTeamOrg, teamMemberOp, teamProjectOp,
+  type AnnouncementInfo, type AnnouncementScope, type ApiUser, type NotificationInfo, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
+import { timeAgo } from "@/lib/format";
 import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
 import { Analytics } from "./Analytics";
@@ -26,6 +27,7 @@ import { DashboardView } from "./DashboardView";
 import { OrgView } from "./OrgView";
 import { GateInspector } from "./GateInspector";
 import { History } from "./History";
+import { ItemComments } from "./ItemComments";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -77,6 +79,8 @@ export default function App() {
   const [adminModal, setAdminModal] = useState<"project" | "team" | "org" | null>(null);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<AnnouncementInfo[]>([]);
+  const [notifications, setNotifications] = useState<NotificationInfo[]>([]);
+  const [bellOpen, setBellOpen] = useState(false);
   const [annModal, setAnnModal] = useState(false);
   const [annScope, setAnnScope] = useState<AnnouncementScope>("company");
   const [annTarget, setAnnTarget] = useState("");
@@ -135,6 +139,19 @@ export default function App() {
         setSelId(itemsRes.data.items[0].id);
     })();
   }, []);
+
+  // notifications: fetch on login, then poll every 30s (cleaned up on unmount)
+  useEffect(() => {
+    if (!me) return;
+    let live = true;
+    const load = async () => {
+      const r = await fetchNotifications();
+      if (live && r.ok) setNotifications(r.data.notifications);
+    };
+    void load();
+    const t = setInterval(() => void load(), 30_000);
+    return () => { live = false; clearInterval(t); };
+  }, [me]);
 
   function pushToast(o: Omit<Toast, "id">) {
     const id = Date.now() + "_" + Math.random().toString(36).slice(2, 5);
@@ -267,6 +284,9 @@ export default function App() {
   }
   function commentOnWorkItem(wiId: string, text: string) {
     void sendCmd(item.id, { kind: "wiComment", wiId, text });
+  }
+  function commentOnItem(text: string) {
+    void sendCmd(item.id, { kind: "item_comment", text });
   }
   function moveWorkItemOn(itemId: string, wiId: string, to: WiState) {
     void sendCmd(itemId, { kind: "wiMove", wiId, to });
@@ -414,6 +434,31 @@ export default function App() {
     }
   }
 
+  /* ---- notifications: bell dropdown + watch toggle ---- */
+  const unreadCount = notifications.filter((n) => !n.readAt).length;
+  const watching = snap.watchers.has(actor);
+  function markReadLocal(ids: string[] | "all") {
+    const now = new Date().toISOString();
+    setNotifications((ns) => ns.map((n) =>
+      !n.readAt && (ids === "all" || ids.includes(n.id)) ? { ...n, readAt: now } : n));
+  }
+  async function openNotification(n: NotificationInfo) {
+    setBellOpen(false);
+    if (n.itemId && byId[n.itemId]) selectItem(n.itemId);
+    if (!n.readAt) {
+      markReadLocal([n.id]); // optimistic — server is source of truth on next poll
+      await markNotificationsRead([n.id]);
+    }
+  }
+  async function markAllRead() {
+    markReadLocal("all");
+    await markNotificationsRead();
+  }
+  function toggleWatch() {
+    void sendCmd(item.id, { kind: "watch", on: !watching },
+      { ok: true, message: watching ? `Stopped watching ${item.id}` : `Watching ${item.id}`, detail: "you'll be notified of moves & comments" });
+  }
+
   async function doLogout() {
     await logout();
     window.location.href = "/login";
@@ -481,6 +526,31 @@ export default function App() {
               </div>
             </>}
           </div>}
+        <div className="bellwrap">
+          <button className="bell-btn" title="Notifications" aria-haspopup="menu" aria-expanded={bellOpen}
+            onClick={() => setBellOpen((o) => !o)}>
+            🔔{unreadCount > 0 && <span className="bell-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+          </button>
+          {bellOpen && <>
+            <div className="newmenu-scrim" onClick={() => setBellOpen(false)}></div>
+            <div className="bell-pop" role="menu">
+              <div className="bell-head">
+                <b>Notifications</b>
+                {unreadCount > 0 && <button className="bell-markall" onClick={markAllRead}>Mark all read</button>}
+              </div>
+              {notifications.length === 0 &&
+                <div className="bell-empty">No notifications yet — watch an item to get updates.</div>}
+              {notifications.map((n) => (
+                <button key={n.id} className="bell-row" data-unread={!n.readAt} role="menuitem"
+                  onClick={() => void openNotification(n)}>
+                  <span className="bell-dot" aria-hidden="true"></span>
+                  <span className="bell-msg">{n.message}</span>
+                  <span className="bell-ts mono">{timeAgo(new Date(n.createdAt).getTime())}</span>
+                </button>
+              ))}
+            </div>
+          </>}
+        </div>
         <div className="who">
           <Avatar name={actor} /> <span>{actor}</span>
           <span className="kpill" data-role={role}>{role === "PM" ? "Product" : "Engineering"}</span>
@@ -588,6 +658,10 @@ export default function App() {
                 <button className="lineage" onClick={() => setSelId(child[0].id)}>⎇ {child.length} child {child.length > 1 ? "iterations" : "iteration"}</button></>}
               <div className="spacer"></div>
               <div className="flagbtns">
+                <button className="flagbtn watch" data-on={watching} onClick={toggleWatch}
+                  title={watching ? "Stop watching this item" : "Get notified about transitions and comments"}>
+                  ◉ {watching ? "Watching" : "Watch"}
+                </button>
                 {(["blocked", "on_hold"] as FlagKey[]).map((f) => (
                   <button key={f} className={"flagbtn " + f} data-on={!!snap.flags[f]} onClick={() => toggleFlag(f)}>
                     {f === "blocked" ? "⚑" : "⏸"} {f === "blocked" ? "Blocked" : "On hold"}
@@ -647,6 +721,7 @@ export default function App() {
                 <WorkItems key={item.id} item={item} snap={snap} role={role}
                   onCreate={addWorkItem} onUpdate={editWorkItem} onDelete={removeWorkItem} onOpen={setOpenWiId}
                   onMove={moveWorkItem} onReorder={rankWi} />
+                <ItemComments snap={snap} onComment={commentOnItem} />
                 <History item={item} />
                 <Analytics item={item} />
               </div>

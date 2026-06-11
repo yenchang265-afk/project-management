@@ -34,7 +34,7 @@ export type WiPatchWire = { [K in keyof WorkItem]?: WorkItem[K] | null };
 export type EventType =
   | "CREATE" | "TRANSITION" | "CONDITION_SATISFY" | "CONDITION_WAIVE"
   | "CONDITION_RESET" | "SHIFT_LEFT_SET" | "GATE_SIGNOFF" | "GATE_SIGNOFF_CLEAR"
-  | "SUBTRACK" | "FLAG_SET" | "SPAWN_CHILD"
+  | "SUBTRACK" | "FLAG_SET" | "SPAWN_CHILD" | "ITEM_COMMENT" | "WATCH_SET"
   | "WI_CREATE" | "WI_UPDATE" | "WI_DELETE" | "WI_COMMENT"
   | "WI_LINK" | "WI_UNLINK" | "WI_REORDER";
 
@@ -90,9 +90,10 @@ export interface PdlcEvent {
   value?: boolean;
   risk?: string;
   child?: string;
+  on?: boolean;             // WATCH_SET: true = actor starts watching, false = stops
   wiId?: string;            // target work-item id (WI_CREATE / WI_UPDATE / WI_DELETE / WI_COMMENT / WI_LINK / WI_UNLINK)
   wi?: WiPatchWire;         // WI_CREATE: full fields · WI_UPDATE: patch (null = clear the field — JSON-safe)
-  text?: string;            // WI_COMMENT body
+  text?: string;            // WI_COMMENT / ITEM_COMMENT body
   linkType?: WiLinkType;    // WI_LINK / WI_UNLINK
   linkTarget?: string;      // WI_LINK / WI_UNLINK: the other work item
   order?: string[];         // WI_REORDER: full ordered id list at the time of the event
@@ -154,6 +155,8 @@ export interface Snapshot {
   children: string[];
   workItems: WorkItem[];
   activeRisks: Set<string>;
+  comments: WiComment[];     // DERIVED from ITEM_COMMENT events — the item-level discussion thread
+  watchers: Set<string>;     // DERIVED from WATCH_SET events — actor names currently watching
   events: PdlcEvent[];
 }
 
@@ -318,6 +321,8 @@ export function deriveItem(item: Item): Snapshot {
     return copy;
   });
   const commentsByWi: Record<string, WiComment[]> = {}; // WI_COMMENT thread per work item
+  const comments: WiComment[] = [];                     // ITEM_COMMENT thread on the item itself
+  const watchers = new Set<string>();                   // WATCH_SET: actor names currently watching
   let wiOrder: string[] | null = null;                  // latest WI_REORDER wins
 
   // seed condition defaults from BOTH gates
@@ -361,6 +366,13 @@ export function deriveItem(item: Item): Snapshot {
         break;
       case "SPAWN_CHILD":
         if (e.child) children.push(e.child);
+        break;
+      case "ITEM_COMMENT":
+        if (e.text) comments.push({ id: e.id, author: e.actor, role: e.role, ts: e.ts, text: e.text });
+        break;
+      case "WATCH_SET":
+        if (e.on) watchers.add(e.actor);
+        else watchers.delete(e.actor);
         break;
       case "WI_CREATE":
         if (e.wiId && !workItems.some((w) => w.id === e.wiId)) {
@@ -480,7 +492,7 @@ export function deriveItem(item: Item): Snapshot {
   // attach derived comment threads (omit when none, to keep comment-less items' shape stable)
   workItems = workItems.map((w) => (commentsByWi[w.id] ? { ...w, comments: commentsByWi[w.id] } : w));
 
-  return { state, conditions, flags, signoffs, subtracks, children, workItems, activeRisks, events };
+  return { state, conditions, flags, signoffs, subtracks, children, workItems, activeRisks, comments, watchers, events };
 }
 
 /* ---------- Gate status (generic — same logic for every gate) ---------- */

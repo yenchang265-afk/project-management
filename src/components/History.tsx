@@ -45,6 +45,8 @@ function describeEvent(e: PdlcEvent): { k: string; icon: string; body: React.Rea
       return { k: "rework", icon: "✕", body: <span className="l1">Removed work item <b>{e.wiId}</b></span> };
     case "WI_COMMENT":
       return { k: "meta", icon: "💬", body: <span className="l1">Commented on <b>{e.wiId}</b></span> };
+    case "ITEM_COMMENT":
+      return { k: "meta", icon: "💬", body: <span className="l1">Commented on the item</span> };
     default:
       return { k: "meta", icon: "·", body: <span className="l1">{e.type}</span> };
   }

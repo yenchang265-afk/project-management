@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { deriveItem, wiBlockedBy, type Item, type WiState, type WorkItem } from "@/lib/engine";
-import type { AnnouncementInfo, OrgInfo, ProjectInfo, TeamInfo, TeamMemberInfo } from "@/lib/api";
+import { createSprint, fetchSprints, type AnnouncementInfo, type OrgInfo, type ProjectInfo, type SprintInfo, type TeamInfo, type TeamMemberInfo } from "@/lib/api";
+import { mergeSprintNames, pickDefaultSprint } from "@/lib/sprints";
 import { Avatar, TypeBox, WI_STATES } from "./badges";
 import { RecentWork } from "./RecentWork";
 import { Announcements } from "./Announcements";
@@ -47,11 +48,35 @@ export function TeamSpace({ team, orgs, projects, items, users, canManage, onMov
     return snap.workItems.map((w) => ({ ...w, itemId: it.id, itemTitle: it.title, blockedBy: wiBlockedBy(snap, w.id) }));
   }), [teamItems]);
 
+  // Sprint picker: registry sprints (sprints table, per team) merged with any
+  // free-text sprint strings still living on work items.
+  const [registry, setRegistry] = useState<SprintInfo[]>([]);
+  useEffect(() => {
+    let stale = false;
+    fetchSprints(team.id).then((r) => { if (!stale && r.ok) setRegistry(r.data.sprints); });
+    return () => { stale = true; };
+  }, [team.id]);
   const sprints = useMemo(
-    () => Array.from(new Set(wis.map((w) => w.sprint).filter(Boolean) as string[])).sort(),
-    [wis]);
+    () => mergeSprintNames(registry.map((s) => s.name), wis.map((w) => w.sprint)),
+    [registry, wis]);
   const [sprint, setSprint] = useState<string | null>(null);
-  const active = sprint ?? sprints[sprints.length - 1] ?? null; // default: latest sprint
+  const active = sprint ?? pickDefaultSprint(registry, sprints); // default: active registry sprint, else latest
+
+  // minimal PM-only inline "new sprint" form
+  const [addingSprint, setAddingSprint] = useState(false);
+  const [newSprint, setNewSprint] = useState("");
+  const [sprintErr, setSprintErr] = useState<string | null>(null);
+  async function submitSprint() {
+    const name = newSprint.trim();
+    if (name.length < 2) return;
+    const r = await createSprint(team.id, name);
+    if (!r.ok) { setSprintErr(r.error); return; }
+    const list = await fetchSprints(team.id);
+    if (list.ok) setRegistry(list.data.sprints);
+    setSprint(name);
+    setAddingSprint(false); setNewSprint(""); setSprintErr(null);
+  }
+  function cancelSprint() { setAddingSprint(false); setNewSprint(""); setSprintErr(null); }
 
   const sprintWis = wis.filter((w) => active && w.sprint === active);
   const backlog = wis.filter((w) => !w.sprint && w.state !== "done");
@@ -161,6 +186,16 @@ export function TeamSpace({ team, orgs, projects, items, users, canManage, onMov
               {sprints.length === 0 && <option value="">No sprints yet</option>}
               {sprints.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            {canManage && !addingSprint &&
+              <button className="ts-add-sprint" title="Register a new sprint (PM)" onClick={() => setAddingSprint(true)}>＋ New sprint</button>}
+            {canManage && addingSprint && <>
+              <input className="ts-sprint-input" value={newSprint} maxLength={120} placeholder="Sprint name" autoFocus
+                onChange={(e) => { setNewSprint(e.target.value); setSprintErr(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") submitSprint(); if (e.key === "Escape") cancelSprint(); }} />
+              <button className="ts-add-sprint" disabled={newSprint.trim().length < 2} onClick={submitSprint}>Add</button>
+              <button className="ts-x" title="Cancel" onClick={cancelSprint}>×</button>
+              {sprintErr && <span className="ts-sprint-err">{sprintErr}</span>}
+            </>}
             <span className="mono ts-stats">
               {committed ? `${donePts}/${committed} pts` : `${doneCount}/${sprintWis.length} items`} · {pct}%
             </span>

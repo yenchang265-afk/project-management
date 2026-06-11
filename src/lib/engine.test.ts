@@ -122,6 +122,44 @@ describe("deriveItem", () => {
   });
 });
 
+describe("deriveItem — item comments (ITEM_COMMENT)", () => {
+  it("exposes an empty comments list when there are no ITEM_COMMENT events", () => {
+    const snap = deriveItem(makeItem([E(1, "CREATE", { to: "backlog" })]));
+    expect(snap.comments).toEqual([]);
+  });
+
+  it("appending ITEM_COMMENT surfaces {id, author, role, ts, text} on the snapshot", () => {
+    const ts = Date.now() - DAY;
+    const snap = deriveItem(makeItem([
+      E(2, "CREATE", { to: "backlog" }),
+      E(1, "ITEM_COMMENT", { id: "ic1", actor: "Sam Okafor", role: "Dev", ts, text: "Looks good to me" }),
+    ]));
+    expect(snap.comments).toEqual([
+      { id: "ic1", author: "Sam Okafor", role: "Dev", ts, text: "Looks good to me" },
+    ]);
+  });
+
+  it("multiple comments come back in chronological order even when events arrive out of order", () => {
+    const snap = deriveItem(makeItem([
+      E(4, "CREATE", { to: "backlog" }),
+      E(1, "ITEM_COMMENT", { id: "ic3", text: "third" }),
+      E(3, "ITEM_COMMENT", { id: "ic1", text: "first" }),
+      E(2, "ITEM_COMMENT", { id: "ic2", text: "second" }),
+    ]));
+    expect(snap.comments.map((c) => c.id)).toEqual(["ic1", "ic2", "ic3"]);
+    expect(snap.comments.map((c) => c.text)).toEqual(["first", "second", "third"]);
+  });
+
+  it("ignores ITEM_COMMENT events without text and leaves work-item threads untouched", () => {
+    const snap = deriveItem(makeItem([
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_COMMENT", { id: "ic0" }),                       // malformed: no text
+      E(1, "WI_COMMENT", { id: "wc1", wiId: "WI-1", text: "wi thread" }),
+    ]));
+    expect(snap.comments).toEqual([]);
+  });
+});
+
 describe("gateStatus", () => {
   it("blocked while required conditions remain", () => {
     const snap = deriveItem(makeItem([E(1, "CREATE", { to: "backlog" })]));

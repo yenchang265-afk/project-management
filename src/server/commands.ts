@@ -56,6 +56,8 @@ export const CommandSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("wiLink"), wiId: z.string().max(32), type: z.enum(linkTypes), target: z.string().max(32) }).strict(),
   z.object({ kind: z.literal("wiUnlink"), wiId: z.string().max(32), type: z.enum(linkTypes), target: z.string().max(32) }).strict(),
   z.object({ kind: z.literal("wiReorder"), wiId: z.string().max(32), toIndex: z.number().int().min(0).max(10_000) }).strict(),
+  z.object({ kind: z.literal("item_comment"), text: z.string().min(1).max(2000) }).strict(),
+  z.object({ kind: z.literal("watch"), on: z.boolean() }).strict(),
 ]);
 
 export type Command = z.infer<typeof CommandSchema>;
@@ -156,5 +158,14 @@ export function runCommand(item: Item, cmd: Command, actor: string, role: Role):
       const r = reorderWorkItem(item, snap, cmd.wiId, cmd.toIndex, actor, role);
       return r.ok ? { ok: true, event: r.event } : fail(r.error);
     }
+    case "item_comment": {
+      // both roles may comment; actor/role come from the session (never the body)
+      const body = cmd.text.trim();
+      if (!body) return fail("Comment can’t be empty.");
+      return { ok: true, event: ev(item.id, "ITEM_COMMENT", actor, role, { text: body }) };
+    }
+    case "watch":
+      // both roles may watch; the fold keys watchers by the SESSION actor's name
+      return { ok: true, event: ev(item.id, "WATCH_SET", actor, role, { on: cmd.on }) };
   }
 }

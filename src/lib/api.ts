@@ -1,6 +1,7 @@
 /* Client-side API helpers — thin typed wrapper over fetch + the response envelope.
    A 401 anywhere redirects to /login (session expired or not signed in). */
 import type { Item, PdlcEvent, Role } from "./engine";
+import type { SprintState } from "./sprints";
 
 export interface ApiUser { id: string; email: string; name: string; role: Role; }
 
@@ -108,4 +109,39 @@ export const teamProjectOp = (teamId: string, projectId: string, op: "add" | "re
 export const assignItemProject = (itemId: string, projectId: string | null) =>
   call<Record<string, never>>(`/api/items/${encodeURIComponent(itemId)}/project`, {
     method: "PATCH", body: JSON.stringify({ projectId }),
+  });
+
+/* ---------- Notifications (watchers + @mentions; own rows only) ---------- */
+export interface NotificationInfo {
+  id: string; itemId: string | null; kind: string; message: string;
+  readAt: string | null; createdAt: string;
+}
+
+export const fetchNotifications = () =>
+  call<{ notifications: NotificationInfo[] }>("/api/notifications");
+
+/** Mark notifications read; omit ids to mark ALL read. */
+export const markNotificationsRead = (ids?: string[]) =>
+  call<Record<string, never>>("/api/notifications", {
+    method: "POST", body: JSON.stringify({ op: "read", ...(ids ? { ids } : {}) }),
+  });
+
+/* ---------- Sprint registry (work items keep their free-text sprint string) ---------- */
+export interface SprintInfo {
+  id: string; teamId: string; name: string;
+  start: string | null; end: string | null;   // YYYY-MM-DD
+  state: SprintState;
+}
+
+export const fetchSprints = (teamId: string) =>
+  call<{ sprints: SprintInfo[] }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`);
+
+export const createSprint = (teamId: string, name: string, start: string | null = null, end: string | null = null) =>
+  call<{ id: string }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`, {
+    method: "POST", body: JSON.stringify({ name, start, end }),
+  });
+
+export const updateSprint = (id: string, patch: { name?: string; start?: string | null; end?: string | null; state?: SprintState }) =>
+  call<Record<string, never>>(`/api/sprints/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify(patch),
   });
