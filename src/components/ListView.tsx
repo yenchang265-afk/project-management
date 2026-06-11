@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   deriveItem, legalWiMoves,
   type Item, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import { parseCql, runCql, wiToCqlRow, type CqlRow } from "@/lib/cql";
+import { createFilter, deleteFilter, fetchFilters, type SavedFilterInfo } from "@/lib/api";
 import { TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 /* Flat, spreadsheet-style list of every work item across the visible items
@@ -33,6 +34,17 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
   const [fState, setFState] = useState<"" | WiState>("");
   const [fAssignee, setFAssignee] = useState("");
   const [cql, setCql] = useState("");
+  const [filters, setFilters] = useState<SavedFilterInfo[]>([]);
+  const [filterId, setFilterId] = useState("");
+  const [saveName, setSaveName] = useState("");
+  const [saveShared, setSaveShared] = useState(false);
+  const [filterErr, setFilterErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stale = false;
+    fetchFilters().then((r) => { if (!stale && r.ok) setFilters(r.data.filters); });
+    return () => { stale = true; };
+  }, []);
 
   const all: Row[] = useMemo(
     () => items.flatMap((it) => deriveItem(it).workItems.map((wi) => ({ itemId: it.id, itemTitle: it.title, wi }))),
@@ -111,6 +123,41 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
             <option value="">All assignees</option>
             {assignees.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+        </div>
+        <div className="board-filters" style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 8, alignItems: "center" }}>
+          <select value={filterId} aria-label="Saved filter"
+            onChange={(e) => {
+              setFilterId(e.target.value);
+              const f = filters.find((x) => x.id === e.target.value);
+              if (f) setCql(f.cql);
+            }}>
+            <option value="">Saved filters…</option>
+            {filters.map((f) => <option key={f.id} value={f.id}>{f.name}{f.shared ? " (shared)" : ""}{f.mine ? "" : " — by others"}</option>)}
+          </select>
+          {filterId && filters.find((f) => f.id === filterId)?.mine &&
+            <button className="act" onClick={async () => {
+              const r = await deleteFilter(filterId);
+              if (!r.ok) { setFilterErr(r.error); return; }
+              setFilterErr(null);
+              setFilterId("");
+              const list = await fetchFilters();
+              if (list.ok) setFilters(list.data.filters);
+            }}>✕ Delete filter</button>}
+          <input value={saveName} placeholder="Save CQL as…" aria-label="Filter name"
+            onChange={(e) => setSaveName(e.target.value)} style={{ width: 140 }} />
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+            <input type="checkbox" checked={saveShared} onChange={(e) => setSaveShared(e.target.checked)} /> shared
+          </label>
+          <button className="act" disabled={!saveName.trim() || !cql.trim() || !(parseCql(cql).ok)}
+            onClick={async () => {
+              const r = await createFilter(saveName.trim(), cql.trim(), saveShared);
+              if (!r.ok) { setFilterErr(r.error); return; }
+              setFilterErr(null);
+              setSaveName("");
+              const list = await fetchFilters();
+              if (list.ok) { setFilters(list.data.filters); setFilterId(r.data.id); }
+            }}>＋ Save filter</button>
+          {filterErr && <span className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11 }}>⚠ {filterErr}</span>}
         </div>
         <div style={{ paddingBottom: 8 }}>
           <input value={cql} aria-label="CQL query" className="mono" style={{ width: "100%" }}

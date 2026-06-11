@@ -156,6 +156,22 @@ export const fetchSprints = (teamId: string) =>
 export const fetchAllSprints = () =>
   call<{ sprints: SprintInfo[] }>("/api/sprints");
 
+/* ---------- Saved filters (named CQL queries; shared = visible to everyone) ---------- */
+export interface SavedFilterInfo {
+  id: string; name: string; cql: string; shared: boolean; mine: boolean;
+}
+
+export const fetchFilters = () =>
+  call<{ filters: SavedFilterInfo[] }>("/api/filters");
+
+export const createFilter = (name: string, cql: string, shared: boolean) =>
+  call<{ id: string }>("/api/filters", {
+    method: "POST", body: JSON.stringify({ name, cql, shared }),
+  });
+
+export const deleteFilter = (id: string) =>
+  call<Record<string, never>>(`/api/filters/${encodeURIComponent(id)}`, { method: "DELETE" });
+
 export const createSprint = (teamId: string, name: string, start: string | null = null, end: string | null = null) =>
   call<{ id: string }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`, {
     method: "POST", body: JSON.stringify({ name, start, end }),
