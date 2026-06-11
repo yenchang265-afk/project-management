@@ -188,6 +188,24 @@ export function burndown(
   return out;
 }
 
+/* ---------- 1b. burnup ---------- */
+
+export interface BurnupPoint {
+  ts: number;
+  done: number;  // points of done WIs currently in the sprint
+  total: number; // scope: points of ALL WIs currently in the sprint
+}
+
+/** Sprint burnup: done vs total scope — the same fold as burndown, read
+ *  from the other side (done = total - remaining). Surfaces scope growth. */
+export function burnup(
+  items: Item[],
+  sprint: string,
+  range?: { start: number; end: number },
+): BurnupPoint[] {
+  return burndown(items, sprint, range).map((p) => ({ ts: p.ts, done: p.total - p.remaining, total: p.total }));
+}
+
 /* ---------- 2. velocity ---------- */
 
 export interface VelocityRow {
