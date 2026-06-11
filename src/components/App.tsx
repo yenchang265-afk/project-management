@@ -21,6 +21,8 @@ import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
 import { Analytics } from "./Analytics";
 import { Board } from "./Board";
+import { CompanyView } from "./CompanyView";
+import { OrgView } from "./OrgView";
 import { GateInspector } from "./GateInspector";
 import { History } from "./History";
 import { Navigator } from "./Navigator";
@@ -72,6 +74,7 @@ export default function App() {
   const [structure, setStructure] = useState<Structure | null>(null);
   const [users, setUsers] = useState<TeamMemberInfo[]>([]);
   const [adminModal, setAdminModal] = useState<"project" | "team" | null>(null);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftKey, setDraftKey] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
@@ -79,7 +82,9 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selId, setSelId] = useState("PAY-412");
   const [selTeamId, setSelTeamId] = useState<string | null>(null);
-  const [view, setView] = useState<"detail" | "board" | "team">("detail");
+  // top-level workspace, each isolated: Company (rollup) · Org (structure) · Projects · Teams.
+  const [mode, setMode] = useState<"company" | "org" | "projects" | "teams">("projects");
+  const [view, setView] = useState<"detail" | "board">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -273,11 +278,12 @@ export default function App() {
   }
   function selectItem(id: string) {
     setSelId(id);
+    setMode("projects");
     setView("detail");
   }
   function selectTeam(teamId: string) {
     setSelTeamId(teamId);
-    setView("team");
+    setMode("teams");
   }
 
   /* ---- Phase 3 admin (server enforces PM; client guard is UX only) ---- */
@@ -296,6 +302,7 @@ export default function App() {
   }
   function openAdminModal(kind: "project" | "team") {
     setDraftName(""); setDraftKey(""); setDraftDesc("");
+    setNewMenuOpen(false);
     setAdminModal(kind);
   }
   async function submitAdminModal() {
@@ -361,15 +368,42 @@ export default function App() {
           <span className="glyph">C</span>
           <span>Cadence</span>
         </div>
-        <div className="viewswitch">
-          {(["detail", "board"] as const).map((v) => (
-            <button key={v} data-on={view === v} onClick={() => setView(v)}>
-              {v === "detail" ? "▤ Details" : "▦ Board"}
-            </button>
-          ))}
-          {selTeam && <button data-on={view === "team"} onClick={() => setView("team")}>⟳ {selTeam.name}</button>}
+        <div className="modeswitch">
+          <button data-on={mode === "company"} onClick={() => setMode("company")}>⬡ Company</button>
+          <button data-on={mode === "org"} onClick={() => setMode("org")}>⤜ Org</button>
+          <button data-on={mode === "projects"} onClick={() => setMode("projects")}>▤ Projects</button>
+          <button data-on={mode === "teams"}
+            onClick={() => { setMode("teams"); if (!selTeamId && structure.teams[0]) setSelTeamId(structure.teams[0].id); }}>
+            ◴ Teams
+          </button>
         </div>
+        {mode === "projects" &&
+          <div className="viewswitch">
+            {(["detail", "board"] as const).map((v) => (
+              <button key={v} data-on={view === v} onClick={() => setView(v)}>
+                {v === "detail" ? "▤ Details" : "▦ Board"}
+              </button>
+            ))}
+          </div>}
         <div className="spacer"></div>
+        {isPM &&
+          <div className="newmenu">
+            <button className="newmenu-btn" data-open={newMenuOpen}
+              onClick={() => setNewMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={newMenuOpen}>
+              ＋ New <span className="newmenu-caret">▾</span>
+            </button>
+            {newMenuOpen && <>
+              <div className="newmenu-scrim" onClick={() => setNewMenuOpen(false)}></div>
+              <div className="newmenu-pop" role="menu">
+                <button role="menuitem" onClick={() => openAdminModal("project")}>
+                  <span className="nm-ic mono">▤</span> Project
+                </button>
+                <button role="menuitem" onClick={() => openAdminModal("team")}>
+                  <span className="nm-ic mono">◴</span> Team
+                </button>
+              </div>
+            </>}
+          </div>}
         <div className="who">
           <Avatar name={actor} /> <span>{actor}</span>
           <span className="kpill" data-role={role}>{role === "PM" ? "Product" : "Engineering"}</span>
@@ -378,7 +412,8 @@ export default function App() {
       </div>
 
       <div className="body">
-        {/* SIDEBAR */}
+        {/* SIDEBAR — only the item/team workspaces have a nav rail */}
+        {(mode === "projects" || mode === "teams") &&
         <aside className="sidebar">
           <div className="org-wrap">
             <div className="org-switch" style={{ cursor: "default" }}>
@@ -389,7 +424,7 @@ export default function App() {
               </span>
             </div>
           </div>
-          <div className="side-head">
+          {mode === "projects" && <div className="side-head">
             <div className="nav-search">
               <span className="ns-ic">⌕</span>
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search items…" />
@@ -402,28 +437,31 @@ export default function App() {
                 </button>
               ))}
             </div>
-          </div>
-          {isPM &&
-            <div className="admin-actions">
-              <button className="wi-add" onClick={() => openAdminModal("project")}>＋ Project</button>
-              <button className="wi-add" onClick={() => openAdminModal("team")}>＋ Team</button>
-            </div>}
+          </div>}
           <div className="itemtree scroll">
-            <Navigator projects={structure.projects} teams={structure.teams} items={items}
-              selId={selId} selTeamId={view === "team" ? selTeamId : null}
+            <Navigator mode={mode} projects={structure.projects} teams={structure.teams} items={items}
+              selId={selId} selTeamId={mode === "teams" ? selTeamId : null}
               onSelect={selectItem} onSelectTeam={selectTeam}
               filter={filter} search={query} collapsed={collapsed} onToggle={toggleNode} />
           </div>
-        </aside>
+        </aside>}
+
+        {/* COMPANY — rollup dashboard across all projects (isolated) */}
+        {mode === "company" &&
+          <CompanyView projects={structure.projects} teams={structure.teams} items={items} />}
+
+        {/* ORG — people/ownership structure chart (isolated) */}
+        {mode === "org" &&
+          <OrgView projects={structure.projects} teams={structure.teams} />}
 
         {/* BOARD */}
-        {view === "board" &&
+        {mode === "projects" && view === "board" &&
           <main className="detail board-main">
             <Board items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
           </main>}
 
-        {/* TEAM SPACE (scrum template) */}
-        {view === "team" && selTeam &&
+        {/* TEAM SPACE (scrum template) — isolated Teams workspace */}
+        {mode === "teams" && selTeam &&
           <main className="detail board-main">
             <TeamSpace team={selTeam} projects={structure.projects} items={items}
               users={users} canManage={isPM}
@@ -431,9 +469,13 @@ export default function App() {
               onMemberOp={(u, op) => memberOp(selTeam.id, u, op)}
               onProjectOp={(p, op) => projectOp(selTeam.id, p, op)} />
           </main>}
+        {mode === "teams" && !selTeam &&
+          <main className="detail board-main">
+            <div className="app-loading">Select a team.</div>
+          </main>}
 
         {/* DETAIL */}
-        {view === "detail" && <main className="detail">
+        {mode === "projects" && view === "detail" && <main className="detail">
           <div className="detail-head">
             <div className="crumbs">
               <span className="c">{itemProject ? itemProject.name : "No project"}</span>

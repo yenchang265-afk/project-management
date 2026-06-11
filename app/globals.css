@@ -525,6 +525,51 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .viewswitch button{font-size:12.5px;font-weight:600;padding:5px 13px;border-radius:6px;color:var(--text-2);transition:.15s var(--ease);}
 .viewswitch button[data-on="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08);}
 
+/* primary workspace switch: Company · Org · Projects · Teams (each isolated) */
+.modeswitch{display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:3px;gap:2px;margin-left:16px;}
+.modeswitch button{font-size:12.5px;font-weight:600;padding:5px 13px;border-radius:6px;color:var(--text-2);transition:.15s var(--ease);}
+.modeswitch button[data-on="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08);}
+
+/* ===================== COMPANY / ORG overview dashboards ===================== */
+.company-wrap{max-width:980px;margin:0 auto;padding:26px 28px;display:flex;flex-direction:column;gap:18px;width:100%;}
+.ov-head{display:flex;align-items:flex-end;justify-content:space-between;}
+.ov-title{margin:0;font-size:22px;font-weight:650;letter-spacing:-.02em;}
+.ov-sub{font-size:12px;color:var(--text-3);margin-top:3px;}
+.ov-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+
+/* stacked lane bar */
+.lanebar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--surface-3);}
+.lanebar-seg{height:100%;}
+.lanebar-empty{flex:1;}
+.lane-legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px;}
+.lane-leg{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);}
+.lane-leg b{color:var(--text);}
+.lane-dot{width:9px;height:9px;border-radius:3px;flex:0 0 auto;}
+
+/* per-project health */
+.proj-health{display:flex;flex-direction:column;gap:14px;}
+.ph-row{display:flex;flex-direction:column;gap:6px;}
+.ph-meta{display:flex;align-items:center;gap:9px;font-size:13px;}
+.ph-name{font-weight:560;}
+.ph-count{margin-left:auto;color:var(--text-3);font-size:11px;}
+.ph-owners{font-size:11px;color:var(--text-3);}
+
+/* org structure grid */
+.org-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;}
+.org-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:15px 16px;display:flex;flex-direction:column;gap:13px;}
+.org-card-h{display:flex;align-items:center;gap:10px;}
+.org-card-name{font-size:14.5px;font-weight:620;letter-spacing:-.01em;}
+.org-card-h .nav-count{margin-left:auto;}
+.org-sec{display:flex;flex-direction:column;gap:7px;}
+.org-sec-l{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);}
+.org-members{display:flex;flex-direction:column;gap:6px;}
+.org-member{display:flex;align-items:center;gap:8px;font-size:12.5px;}
+.om-name{color:var(--text);}
+.org-member .kpill{margin-left:auto;}
+.org-projects{display:flex;flex-wrap:wrap;gap:7px;}
+.org-projtag{display:flex;align-items:center;gap:7px;padding:4px 9px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);font-size:12px;}
+.op-name{color:var(--text-2);}
+
 /* board layout */
 .board-main{display:flex;flex-direction:column;overflow:hidden;}
 .board{display:flex;flex-direction:column;flex:1;min-height:0;padding:14px 18px;gap:10px;}
@@ -617,8 +662,34 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .ts-rowstate{font-size:10.5px;font-weight:700;margin-left:auto;white-space:nowrap;}
 
 /* ============ Phase 3: admin CRUD ============ */
-.admin-actions{display:flex;gap:6px;padding:0 10px 8px;}
-.admin-actions .wi-add{flex:1;}
+/* top-bar "＋ New" command menu (project/team create, PM only) */
+.newmenu{position:relative;display:flex;}
+.newmenu-btn{
+  display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;
+  padding:6px 12px;border-radius:var(--r-md);border:1px solid var(--border);
+  background:var(--surface);color:var(--text);transition:.13s var(--ease);
+}
+.newmenu-btn:hover{border-color:var(--border-2);background:var(--surface-2);}
+.newmenu-btn[data-open="true"]{border-color:var(--border-2);background:var(--surface-2);}
+.newmenu-caret{font-size:10px;color:var(--text-3);transition:.13s var(--ease);}
+.newmenu-btn[data-open="true"] .newmenu-caret{transform:rotate(180deg);}
+.newmenu-scrim{position:fixed;inset:0;z-index:40;}
+.newmenu-pop{
+  position:absolute;top:calc(100% + 6px);right:0;z-index:41;min-width:172px;
+  display:flex;flex-direction:column;gap:2px;padding:6px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  box-shadow:0 10px 30px oklch(0.2 0.02 260 / .16),var(--shadow-sm);
+}
+.newmenu-pop button{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  font-size:12.5px;font-weight:500;padding:8px 10px;border-radius:var(--r-sm);
+  color:var(--text);transition:.1s var(--ease);
+}
+.newmenu-pop button:hover{background:var(--surface-2);}
+.newmenu-pop .nm-ic{
+  width:22px;height:22px;border-radius:6px;display:grid;place-items:center;flex:0 0 auto;
+  background:var(--surface-3);color:var(--text-2);font-size:12px;
+}
 .admin-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:80;width:360px;display:flex;flex-direction:column;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,.18);}
 .admin-modal h2{font-size:16px;font-weight:700;margin:0;text-transform:capitalize;}
 .admin-modal input,.admin-modal textarea{width:100%;font-size:13px;font-family:inherit;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;outline:none;resize:vertical;}

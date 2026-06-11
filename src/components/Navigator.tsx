@@ -21,6 +21,7 @@ function navMatchLane(it: Item, filter: string) {
 }
 
 interface NavigatorProps {
+  mode: "projects" | "teams";
   projects: ProjectInfo[];
   teams: TeamInfo[];
   items: Item[];
@@ -34,7 +35,7 @@ interface NavigatorProps {
   onToggle: (key: string) => void;
 }
 
-export function Navigator({ projects, teams, items, selId, selTeamId, onSelect, onSelectTeam, filter, search, collapsed, onToggle }: NavigatorProps) {
+export function Navigator({ mode, projects, teams, items, selId, selTeamId, onSelect, onSelectTeam, filter, search, collapsed, onToggle }: NavigatorProps) {
   const q = (search || "").trim().toLowerCase();
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
   const matchText = (it: Item) => !q || it.id.toLowerCase().includes(q) || it.title.toLowerCase().includes(q);
@@ -96,6 +97,26 @@ export function Navigator({ projects, teams, items, selId, selTeamId, onSelect, 
   }
 
   const anyProject = projects.some((p) => projectShown(p.id).length > 0);
+
+  if (mode === "teams") {
+    return (
+      <div className="nav">
+        <div className="nav-section">Teams</div>
+        {teams.map((t) => (
+          <button className="nav-teamrow" key={t.id} data-sel={t.id === selTeamId} onClick={() => onSelectTeam(t.id)}>
+            <span className="nav-teamglyph">{t.name[0]}</span>
+            <span className="nav-tlabel">{t.name}</span>
+            <span className="nav-teamavs">
+              {t.members.slice(0, 3).map((m) => <Avatar key={m.id} name={m.name} size={16} />)}
+            </span>
+            <span className="nav-count">{t.members.length}</span>
+          </button>
+        ))}
+        {!teams.length && <div className="nav-empty">No teams.</div>}
+      </div>
+    );
+  }
+
   return (
     <div className="nav">
       <div className="nav-section">Projects</div>
@@ -111,18 +132,6 @@ export function Navigator({ projects, teams, items, selId, selTeamId, onSelect, 
           {isOpen("p:none") && orphanShown.filter((it) => !it.parent || !shown.has(it.parent)).map((it) => renderItem(it, 1))}
         </div>
       )}
-
-      <div className="nav-section">Teams</div>
-      {teams.map((t) => (
-        <button className="nav-teamrow" key={t.id} data-sel={t.id === selTeamId} onClick={() => onSelectTeam(t.id)}>
-          <span className="nav-teamglyph">{t.name[0]}</span>
-          <span className="nav-tlabel">{t.name}</span>
-          <span className="nav-teamavs">
-            {t.members.slice(0, 3).map((m) => <Avatar key={m.id} name={m.name} size={16} />)}
-          </span>
-          <span className="nav-count">{t.members.length}</span>
-        </button>
-      ))}
     </div>
   );
 }
