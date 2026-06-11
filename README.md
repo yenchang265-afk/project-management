@@ -32,16 +32,25 @@ npm install
 cp .env.example .env.local        # then edit credentials
 
 # Option A: Docker
-docker compose up -d db           # MariaDB 11 on port 3307
+docker compose up -d db           # MariaDB 11 on HOST PORT 3307 (.env.local URLs must use 3307)
 
-# Option B: native MariaDB — create databases + users:
+# Option B: native MariaDB (usually port 3306 — adjust .env.local) — create database + admin:
 #   CREATE DATABASE cadence; CREATE USER 'cadence_admin'@'localhost' ...;
 #   (see .env.example for the URLs the app expects)
 
 npm run db:migrate                # apply migrations/ (admin connection)
+
+# Create the least-privilege runtime user (append-only `events`) — once per database,
+# AFTER migrate; Docker init only creates cadence_admin:
+docker compose exec -T db mariadb -uroot -pcadence_root_dev_pw cadence < scripts/db-grants.sql
+
 npm run db:seed                   # demo items + two logins (printed once)
 npm run dev                       # http://localhost:3000 → /login
 ```
+
+A 500 from every API route usually means the DB connection is failing: wrong port in
+`.env.local` (Docker is 3307, not 3306), migrations not applied, or the `cadence`
+runtime user missing (`scripts/db-grants.sql`).
 
 Seed logins: `maya@cadence.dev` (Product) and `sam@cadence.dev` (Engineering) —
 passwords printed by `db:seed`, overridable via `SEED_PM_PASSWORD` / `SEED_DEV_PASSWORD`.
