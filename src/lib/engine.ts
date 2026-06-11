@@ -41,7 +41,7 @@ export type EventType =
   | "CONDITION_RESET" | "SHIFT_LEFT_SET" | "GATE_SIGNOFF" | "GATE_SIGNOFF_CLEAR"
   | "SUBTRACK" | "FLAG_SET" | "SPAWN_CHILD" | "ITEM_COMMENT" | "WATCH_SET"
   | "ITEM_LINK" | "ITEM_UNLINK"
-  | "WI_CREATE" | "WI_UPDATE" | "WI_DELETE" | "WI_COMMENT"
+  | "WI_CREATE" | "WI_UPDATE" | "WI_DELETE" | "WI_COMMENT" | "WI_WORKLOG"
   | "WI_LINK" | "WI_UNLINK" | "WI_REORDER";
 
 export interface StateDef {
@@ -105,6 +105,7 @@ export interface PdlcEvent {
   linkTarget?: string;      // WI_LINK / WI_UNLINK: the other work item
   linkKind?: ItemLinkKind;  // ITEM_LINK / ITEM_UNLINK (the target item id travels in `to`)
   order?: string[];         // WI_REORDER: full ordered id list at the time of the event
+  hours?: number;           // WI_WORKLOG: hours worked (> 0); `text` carries the optional note
 }
 
 export interface WiComment {
@@ -113,6 +114,15 @@ export interface WiComment {
   role: Role;
   ts: number;
   text: string;
+}
+
+export interface WiWorklog {
+  id: string;
+  author: string;
+  role: Role;
+  ts: number;
+  hours: number;
+  text?: string;
 }
 
 export interface WorkItem {
@@ -132,6 +142,11 @@ export interface WorkItem {
   phase?: WiPhase;            // SDLC phase binding (drives board swimlanes + rollup context)
   sprint?: string;            // sprint/iteration name (free text, trimmed)
   links?: WiLink[];           // outgoing links; inverse direction is derived for display
+  parentWiId?: string;        // subtask parent (one level — a parent can't itself be a subtask)
+  originalEstimate?: number;  // hours >= 0
+  remainingEstimate?: number; // hours >= 0; auto-decremented by worklogs (floor 0)
+  timeSpent?: number;         // DERIVED from WI_WORKLOG events — total hours logged
+  worklogs?: WiWorklog[];     // DERIVED from WI_WORKLOG events; omitted when none
 }
 
 export interface Stakeholder {
@@ -329,6 +344,7 @@ export function deriveItem(item: Item): Snapshot {
     if (w.links) copy.links = w.links.map((l) => ({ ...l }));
     return copy;
   });
+  const worklogsByWi: Record<string, WiWorklog[]> = {}; // WI_WORKLOG entries per work item
   const commentsByWi: Record<string, WiComment[]> = {}; // WI_COMMENT thread per work item
   const comments: WiComment[] = [];                     // ITEM_COMMENT thread on the item itself
   const watchers = new Set<string>();                   // WATCH_SET: actor names currently watching
@@ -412,6 +428,7 @@ export function deriveItem(item: Item): Snapshot {
           if (p.tags != null) created.tags = normalizeTags(p.tags); // canonical + fresh array
           if (p.phase != null) created.phase = p.phase;
           if (p.sprint != null) created.sprint = p.sprint;
+          if (p.parentWiId != null) created.parentWiId = p.parentWiId;
           workItems = [...workItems, created];
         }
         break;
@@ -438,6 +455,18 @@ export function deriveItem(item: Item): Snapshot {
         if (e.wiId && e.text) {
           if (!commentsByWi[e.wiId]) commentsByWi[e.wiId] = [];
           commentsByWi[e.wiId].push({ id: e.id, author: e.actor, role: e.role, ts: e.ts, text: e.text });
+        }
+        break;
+      case "WI_WORKLOG":
+        if (e.wiId && e.hours != null && e.hours > 0) {
+          if (!worklogsByWi[e.wiId]) worklogsByWi[e.wiId] = [];
+          worklogsByWi[e.wiId].push({ id: e.id, author: e.actor, role: e.role, ts: e.ts, hours: e.hours, ...(e.text ? { text: e.text } : {}) });
+          workItems = workItems.map((w) => {
+            if (w.id !== e.wiId) return w;
+            const next: WorkItem = { ...w, timeSpent: (w.timeSpent || 0) + e.hours! };
+            if (w.remainingEstimate != null) next.remainingEstimate = Math.max(0, w.remainingEstimate - e.hours!);
+            return next;
+          });
         }
         break;
       case "WI_LINK":
@@ -503,6 +532,13 @@ export function deriveItem(item: Item): Snapshot {
     return kept.length === w.links.length ? w : { ...w, links: kept };
   });
 
+  // ----- orphan subtasks whose parent no longer exists (tombstoned) -----
+  workItems = workItems.map((w) => {
+    if (!w.parentWiId || liveIds.has(w.parentWiId)) return w;
+    const { parentWiId: _dropped, ...rest } = w;
+    return rest;
+  });
+
   // ----- SDLC→PDLC rollup: all work items done auto-satisfies the release condition -----
   // (vacuously satisfied with zero work items; an explicit satisfy/waive event always wins)
   if (conditions.work_complete === "required" && workItems.every((w) => w.state === "done"))
@@ -510,6 +546,8 @@ export function deriveItem(item: Item): Snapshot {
 
   // attach derived comment threads (omit when none, to keep comment-less items' shape stable)
   workItems = workItems.map((w) => (commentsByWi[w.id] ? { ...w, comments: commentsByWi[w.id] } : w));
+  // attach derived worklogs (same omit-when-none convention)
+  workItems = workItems.map((w) => (worklogsByWi[w.id] ? { ...w, worklogs: worklogsByWi[w.id] } : w));
 
   return { state, conditions, flags, signoffs, subtracks, children, workItems, activeRisks, comments, watchers, links, events };
 }
@@ -729,9 +767,20 @@ export function nextWorkItemId(item: Item, snap: Snapshot): string {
   return `${prefix}-${max + 1}`;
 }
 
+/** Validate a subtask parent: must exist and must not itself be a subtask (one level). */
+function parentWiError(snap: Snapshot, parentWiId: string, selfId?: string): string | null {
+  if (selfId !== undefined && parentWiId === selfId) return "A work item can’t be its own parent.";
+  const parent = snap.workItems.find((w) => w.id === parentWiId);
+  if (!parent) return `Parent work item ${parentWiId} not found.`;
+  if (parent.parentWiId) return `${parentWiId} is itself a subtask — subtasks nest one level only.`;
+  if (selfId !== undefined && snap.workItems.some((w) => w.parentWiId === selfId))
+    return `${selfId} has subtasks of its own — it can’t become a subtask.`;
+  return null;
+}
+
 export function createWorkItem(
   item: Item, snap: Snapshot,
-  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string },
+  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string; parentWiId?: string },
   actor: string, role: Role
 ): WiResult {
   const title = (draft.title || "").trim();
@@ -741,6 +790,10 @@ export function createWorkItem(
     return { ok: false, error: `Invalid work-item state "${draft.state}".` };
   if (draft.phase !== undefined && !WI_PHASE_SET.has(draft.phase))
     return { ok: false, error: `Invalid phase "${draft.phase}".` };
+  if (draft.parentWiId !== undefined) {
+    const err = parentWiError(snap, draft.parentWiId);
+    if (err) return { ok: false, error: err };
+  }
   const id = nextWorkItemId(item, snap);
   if (snap.workItems.some((w) => w.id === id))
     return { ok: false, error: `Work item ${id} already exists.` };
@@ -753,6 +806,7 @@ export function createWorkItem(
   if (draft.phase !== undefined) wi.phase = draft.phase;
   const sprint = (draft.sprint || "").trim();
   if (sprint) wi.sprint = sprint;
+  if (draft.parentWiId !== undefined) wi.parentWiId = draft.parentWiId;
   return { ok: true, event: ev(item.id, "WI_CREATE", actor, role, { wiId: id, wi }) };
 }
 
@@ -774,6 +828,10 @@ export function updateWorkItem(
     return { ok: false, error: `Invalid severity "${patch.severity}".` };
   if (patch.storyPoints !== undefined && (!Number.isFinite(patch.storyPoints) || patch.storyPoints < 0))
     return { ok: false, error: "Story points must be a number ≥ 0." };
+  if (patch.originalEstimate !== undefined && (!Number.isFinite(patch.originalEstimate) || patch.originalEstimate < 0))
+    return { ok: false, error: "Original estimate must be a number of hours ≥ 0." };
+  if (patch.remainingEstimate !== undefined && (!Number.isFinite(patch.remainingEstimate) || patch.remainingEstimate < 0))
+    return { ok: false, error: "Remaining estimate must be a number of hours ≥ 0." };
   if (patch.tags !== undefined && !Array.isArray(patch.tags))
     return { ok: false, error: "Tags must be a list." };
   if (patch.phase !== undefined && !WI_PHASE_SET.has(patch.phase))
@@ -793,6 +851,8 @@ export function updateWorkItem(
   if ("priority" in patch && patch.priority !== cur.priority) wi.priority = patch.priority ?? null;
   if ("storyPoints" in patch && patch.storyPoints !== cur.storyPoints) wi.storyPoints = patch.storyPoints ?? null;
   if ("severity" in patch && patch.severity !== cur.severity) wi.severity = patch.severity ?? null;
+  if ("originalEstimate" in patch && patch.originalEstimate !== cur.originalEstimate) wi.originalEstimate = patch.originalEstimate ?? null;
+  if ("remainingEstimate" in patch && patch.remainingEstimate !== cur.remainingEstimate) wi.remainingEstimate = patch.remainingEstimate ?? null;
   if ("phase" in patch && patch.phase !== cur.phase) wi.phase = patch.phase ?? null;
   if ("sprint" in patch) {
     const v = (patch.sprint ?? "").trim() || undefined;
@@ -801,6 +861,13 @@ export function updateWorkItem(
   if (patch.tags !== undefined) {
     const norm = normalizeTags(patch.tags);
     if (!sameTags(norm, cur.tags || [])) wi.tags = norm;
+  }
+  if ("parentWiId" in patch && patch.parentWiId !== cur.parentWiId) {
+    if (patch.parentWiId !== undefined) {
+      const err = parentWiError(snap, patch.parentWiId, wiId);
+      if (err) return { ok: false, error: err };
+    }
+    wi.parentWiId = patch.parentWiId ?? null;
   }
   if (Object.keys(wi).length === 0) return { ok: false, error: "No changes to save." };
   return { ok: true, event: ev(item.id, "WI_UPDATE", actor, role, { wiId, wi }) };
@@ -812,6 +879,19 @@ export function deleteWorkItem(
   if (!snap.workItems.some((w) => w.id === wiId))
     return { ok: false, error: `Work item ${wiId} not found.` };
   return { ok: true, event: ev(item.id, "WI_DELETE", actor, role, { wiId }) };
+}
+
+/** Log hours worked on a work item (append-only). The fold accumulates
+ *  timeSpent and decrements remainingEstimate (floor 0). */
+export function logWork(
+  item: Item, snap: Snapshot, wiId: string, hours: number, note: string, actor: string, role: Role
+): WiResult {
+  if (!snap.workItems.some((w) => w.id === wiId))
+    return { ok: false, error: `Work item ${wiId} not found.` };
+  if (!Number.isFinite(hours) || hours <= 0)
+    return { ok: false, error: "Logged time must be a number of hours > 0." };
+  const text = (note || "").trim();
+  return { ok: true, event: ev(item.id, "WI_WORKLOG", actor, role, { wiId, hours, ...(text ? { text } : {}) }) };
 }
 
 /** Post a comment to a work item's discussion thread (append-only). */
@@ -826,6 +906,11 @@ export function commentWorkItem(
 }
 
 /* ---------- WI workflow transition (flow-table + blocker enforced) ---------- */
+
+/** Direct subtasks of `wiId` (one level — see parentWiId). */
+export function wiSubtasks(snap: Snapshot, wiId: string): WorkItem[] {
+  return snap.workItems.filter((w) => w.parentWiId === wiId);
+}
 
 /** Ids of OPEN work items that declare a `blocks` link onto `wiId`. */
 export function wiBlockedBy(snap: Snapshot, wiId: string): string[] {
@@ -857,6 +942,9 @@ export function transitionWorkItem(
     const blockers = wiBlockedBy(snap, wiId);
     if (blockers.length)
       return { ok: false, error: `${wiId} is blocked by open ${blockers.length > 1 ? "items" : "item"} ${blockers.join(", ")} — finish or unlink them first.` };
+    const openSubs = wiSubtasks(snap, wiId).filter((w) => w.state !== "done");
+    if (openSubs.length)
+      return { ok: false, error: `${wiId} has ${openSubs.length} open subtask${openSubs.length > 1 ? "s" : ""} (${openSubs.map((w) => w.id).join(", ")}) — finish them first.` };
   }
   return { ok: true, event: ev(item.id, "WI_UPDATE", actor, role, { wiId, wi: { state: to } }) };
 }

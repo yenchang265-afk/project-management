@@ -302,6 +302,9 @@ export default function App() {
   function commentOnWorkItem(wiId: string, text: string) {
     void sendCmd(item.id, { kind: "wiComment", wiId, text });
   }
+  function logWorkOn(wiId: string, hours: number, note: string) {
+    void sendCmd(item.id, { kind: "wiWorklog", wiId, hours, note });
+  }
   function commentOnItem(text: string) {
     void sendCmd(item.id, { kind: "item_comment", text });
   }
@@ -871,7 +874,7 @@ export default function App() {
       {openWiId && snap.workItems.some((w) => w.id === openWiId) &&
         <WorkItemDrawer key={item.id + ":" + openWiId} item={item} snap={snap} wiId={openWiId} role={role}
           onClose={() => setOpenWiId(null)} onUpdate={editWorkItem} onComment={commentOnWorkItem}
-          onMove={moveWorkItem} onLink={linkWi} onUnlink={unlinkWi} />}
+          onMove={moveWorkItem} onLink={linkWi} onUnlink={unlinkWi} onWorklog={logWorkOn} />}
 
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>

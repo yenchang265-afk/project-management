@@ -256,3 +256,45 @@ describe("item link commands", () => {
     expect(runCommand(item, { kind: "item_link", to: "PAY-413", linkKind: "relates" }, DEV, "Dev").ok).toBe(true);
   });
 });
+
+/* ---------------- phase 8: subtasks + time tracking through the wire ---------------- */
+describe("phase 8 commands", () => {
+  it("wiCreate carries parentWiId", () => {
+    const item = makeItem([WI]);
+    const r = runCommand(item,
+      { kind: "wiCreate", draft: { type: "task", title: "Sub", assignee: "", parentWiId: "PAY-418" } } as Command,
+      PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.wi?.parentWiId).toBe("PAY-418");
+  });
+
+  it("wiUpdate accepts estimates and clears them via null", () => {
+    const wi: WorkItem = { ...WI, originalEstimate: 8 };
+    const item = makeItem([wi]);
+    const r = runCommand(item,
+      { kind: "wiUpdate", wiId: "PAY-418", patch: { originalEstimate: null, remainingEstimate: 4 } } as Command,
+      PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.wi?.originalEstimate).toBe(null);
+    expect(r.event.wi?.remainingEstimate).toBe(4);
+  });
+
+  it("wiWorklog logs hours with an optional note", () => {
+    const item = makeItem([WI]);
+    const r = runCommand(item,
+      { kind: "wiWorklog", wiId: "PAY-418", hours: 2.5, note: "pairing" } as Command,
+      DEV, "Dev");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.type).toBe("WI_WORKLOG");
+    expect(r.event.hours).toBe(2.5);
+    expect(r.event.text).toBe("pairing");
+  });
+
+  it("wiWorklog schema rejects non-positive hours", () => {
+    const parsed = CommandSchema.safeParse({ kind: "wiWorklog", wiId: "PAY-418", hours: 0, note: "" });
+    expect(parsed.success).toBe(false);
+  });
+});

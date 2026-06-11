@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   WI_LINK_LABELS, WI_LINK_TYPES, WI_PHASES_ALL, WI_PHASE_LABELS,
   WI_PRIORITIES, WI_PRIORITY_LABELS, WI_SEVERITIES, WI_SEVERITY_LABELS,
-  legalWiMoves, normalizeTags, wiBlockedBy,
+  legalWiMoves, normalizeTags, wiBlockedBy, wiSubtasks,
   type Item, type Role, type Snapshot, type WiLinkType, type WiPhase, type WiPriority, type WiSeverity,
   type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
@@ -24,12 +24,13 @@ interface WorkItemDrawerProps {
   onMove: (wiId: string, to: WiState) => void;
   onLink: (wiId: string, type: WiLinkType, target: string) => void;
   onUnlink: (wiId: string, type: WiLinkType, target: string) => void;
+  onWorklog: (wiId: string, hours: number, note: string) => void;
 }
 
 /* Right-side drawer for the full Azure DevOps-style work-item form + discussion.
    Mounted with key={wiId} by the parent, so local field buffers are fresh per item.
    Text fields commit on blur; selects/tags/comments commit on change. */
-export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment, onMove, onLink, onUnlink }: WorkItemDrawerProps) {
+export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment, onMove, onLink, onUnlink, onWorklog }: WorkItemDrawerProps) {
   const w = snap.workItems.find((x) => x.id === wiId);
   const asideRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -42,6 +43,10 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
   const [comment, setComment] = useState("");
   const [linkType, setLinkType] = useState<WiLinkType>("blocks");
   const [linkTarget, setLinkTarget] = useState("");
+  const [origBuf, setOrigBuf] = useState(w?.originalEstimate != null ? String(w.originalEstimate) : "");
+  const [remBuf, setRemBuf] = useState(w?.remainingEstimate != null ? String(w.remainingEstimate) : "");
+  const [logHours, setLogHours] = useState("");
+  const [logNote, setLogNote] = useState("");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -83,6 +88,9 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
   const blockedBy = wiBlockedBy(snap, wiId);
   const moves = legalWiMoves(w);
   const linkables = snap.workItems.filter((x) => x.id !== wiId);
+  const subtasks = wiSubtasks(snap, wiId);
+  const parentables = snap.workItems.filter((x) => x.id !== wiId && !x.parentWiId);
+  const worklogs = w.worklogs || [];
 
   function commitTitle() {
     const t = title.trim();
@@ -119,6 +127,22 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
     if (!linkTarget) return;
     onLink(wiId, linkType, linkTarget);
     setLinkTarget("");
+  }
+  function commitEstimate(buf: string, key: "originalEstimate" | "remainingEstimate", setBuf: (v: string) => void) {
+    const raw = buf.trim();
+    const cur = w![key];
+    if (raw === "") { if (cur != null) onUpdate(wiId, { [key]: undefined }); return; } // clear
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) { if (n !== cur) onUpdate(wiId, { [key]: n }); }
+    else setBuf(cur != null ? String(cur) : "");
+  }
+  function submitWorklog() {
+    const n = Number(logHours);
+    if (!Number.isFinite(n) || n <= 0) return;
+    onWorklog(wiId, n, logNote.trim());
+    setLogHours(""); setLogNote("");
+    // remaining auto-decrements server-side; refresh the local buffer from the next derive
+    setRemBuf("");
   }
 
   return (
@@ -187,6 +211,25 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 onChange={(e) => setSprintBuf(e.target.value)} onBlur={commitSprint}
                 onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
             </label>
+            <label className="wi-field"><span>Parent</span>
+              {/* one level: only non-subtask WIs are eligible; a WI with subtasks can't become one */}
+              <select value={w.parentWiId ?? ""} disabled={subtasks.length > 0}
+                title={subtasks.length > 0 ? "Has subtasks — can't become a subtask" : "Subtask parent"}
+                onChange={(e) => onUpdate(wiId, { parentWiId: e.target.value || undefined })}>
+                <option value="">—</option>
+                {parentables.map((x) => <option key={x.id} value={x.id}>{x.id} · {x.title}</option>)}
+              </select>
+            </label>
+            <label className="wi-field"><span>Original est. (h)</span>
+              <input className="wi-num" inputMode="numeric" value={origBuf} placeholder="—"
+                onChange={(e) => setOrigBuf(e.target.value)} onBlur={() => commitEstimate(origBuf, "originalEstimate", setOrigBuf)}
+                onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+            </label>
+            <label className="wi-field"><span>Remaining (h)</span>
+              <input className="wi-num" inputMode="numeric" value={remBuf} placeholder={w.remainingEstimate != null ? String(w.remainingEstimate) : "—"}
+                onChange={(e) => setRemBuf(e.target.value)} onBlur={() => commitEstimate(remBuf, "remainingEstimate", setRemBuf)}
+                onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+            </label>
           </div>
 
           {blockedBy.length > 0 && w.state !== "done" &&
@@ -249,6 +292,40 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 </select>
                 <button className="wi-act ok" title="Add link" onClick={addLink} disabled={!linkTarget}>＋</button>
               </div>}
+          </div>
+
+          {subtasks.length > 0 &&
+            <div className="wi-field block"><span>Subtasks <span className="wi-cc">{subtasks.filter((s) => s.state === "done").length}/{subtasks.length} done</span></span>
+              <div className="wi-links">
+                {subtasks.map((s) => (
+                  <div className="wi-link-row" key={s.id}>
+                    <span className="wi-link-kind">{WI_STATES[s.state].label}</span>
+                    <span className="mono wid">{s.id}</span>
+                    <span className="wi-link-title">{s.title}</span>
+                  </div>
+                ))}
+              </div>
+            </div>}
+
+          <div className="wi-field block"><span>Time tracking <span className="wi-cc">{w.timeSpent ?? 0}h logged</span></span>
+            <div className="wi-links">
+              {worklogs.length === 0 && <div className="wi-empty">No work logged yet.</div>}
+              {worklogs.map((l) => (
+                <div className="wi-link-row" key={l.id}>
+                  <span className="wi-link-kind">{l.hours}h</span>
+                  <span className="mono wid">{l.author}</span>
+                  <span className="wi-link-title">{l.text ?? ""} · {timeAgo(l.ts)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="wi-link-add">
+              <input className="wi-num" inputMode="decimal" value={logHours} placeholder="hours" aria-label="Hours worked"
+                onChange={(e) => setLogHours(e.target.value)} style={{ width: 70 }} />
+              <input value={logNote} placeholder="note (optional)" aria-label="Worklog note" maxLength={2000}
+                onChange={(e) => setLogNote(e.target.value)} style={{ flex: 1 }} />
+              <button className="wi-act ok" title="Log work" onClick={submitWorklog}
+                disabled={!Number.isFinite(Number(logHours)) || Number(logHours) <= 0}>＋</button>
+            </div>
           </div>
 
           <div className="wi-field block">

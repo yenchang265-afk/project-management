@@ -5,7 +5,7 @@ import { z } from "zod";
 import {
   GATES, STATES, SUBTRACK_FLOW,
   applyTransition, commentWorkItem, createWorkItem, deleteWorkItem, deriveItem, ev,
-  linkWorkItems, reorderWorkItem, transitionWorkItem, unlinkWorkItems, updateWorkItem,
+  linkWorkItems, logWork, reorderWorkItem, transitionWorkItem, unlinkWorkItems, updateWorkItem,
   ITEM_LINK_KINDS, ITEM_LINK_LABELS, WI_LINK_TYPES, WI_PHASES_ALL, WI_STATES_ALL, WI_TYPES_ALL,
   type ConditionDef, type GateKey, type Item, type PdlcEvent, type Rejection, type Role,
   type StateKey, type SubtrackState, type TrackKey, type WorkItem,
@@ -34,6 +34,9 @@ const WiPatchSchema = z.object({
   tags: z.array(z.string().max(40)).max(50).optional(),
   phase: z.enum(wiPhases).nullable().optional(),
   sprint: z.string().max(64).nullable().optional(),
+  parentWiId: z.string().max(32).nullable().optional(),
+  originalEstimate: z.number().min(0).max(100_000).nullable().optional(),
+  remainingEstimate: z.number().min(0).max(100_000).nullable().optional(),
 }).strict();
 
 export const CommandSchema = z.discriminatedUnion("kind", [
@@ -48,11 +51,13 @@ export const CommandSchema = z.discriminatedUnion("kind", [
     draft: z.object({
       type: z.enum(wiTypes), title: z.string().max(500), assignee: z.string().max(128),
       state: z.enum(wiStates).optional(), phase: z.enum(wiPhases).optional(), sprint: z.string().max(64).optional(),
+      parentWiId: z.string().max(32).optional(),
     }).strict(),
   }).strict(),
   z.object({ kind: z.literal("wiUpdate"), wiId: z.string().max(32), patch: WiPatchSchema }).strict(),
   z.object({ kind: z.literal("wiDelete"), wiId: z.string().max(32) }).strict(),
   z.object({ kind: z.literal("wiComment"), wiId: z.string().max(32), text: z.string().max(10_000) }).strict(),
+  z.object({ kind: z.literal("wiWorklog"), wiId: z.string().max(32), hours: z.number().gt(0).max(10_000), note: z.string().max(2000) }).strict(),
   z.object({ kind: z.literal("wiMove"), wiId: z.string().max(32), to: z.enum(wiStates) }).strict(),
   z.object({ kind: z.literal("wiLink"), wiId: z.string().max(32), type: z.enum(linkTypes), target: z.string().max(32) }).strict(),
   z.object({ kind: z.literal("wiUnlink"), wiId: z.string().max(32), type: z.enum(linkTypes), target: z.string().max(32) }).strict(),
@@ -157,6 +162,10 @@ export function runCommand(item: Item, cmd: Command, actor: string, role: Role):
     }
     case "wiComment": {
       const r = commentWorkItem(item, snap, cmd.wiId, cmd.text, actor, role);
+      return r.ok ? { ok: true, event: r.event } : fail(r.error);
+    }
+    case "wiWorklog": {
+      const r = logWork(item, snap, cmd.wiId, cmd.hours, cmd.note, actor, role);
       return r.ok ? { ok: true, event: r.event } : fail(r.error);
     }
     case "wiMove": {

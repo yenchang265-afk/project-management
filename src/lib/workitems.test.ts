@@ -318,3 +318,179 @@ describe("WI_CREATE tag hygiene (review)", () => {
     expect(w.tags).not.toBe(raw); // fresh array, not aliasing the event payload
   });
 });
+
+/* ---------------- subtasks (parentWiId — one level, Jira-style) ---------------- */
+import { transitionWorkItem, wiSubtasks } from "./engine";
+
+describe("subtasks", () => {
+  function E2(type: PdlcEvent["type"], payload: Partial<PdlcEvent>, ts = 2000): PdlcEvent {
+    return { id: "t" + Math.random().toString(36).slice(2), item: "PAY-412", type, actor: PM, role: "PM", ts, ...payload };
+  }
+
+  it("createWorkItem accepts a parentWiId and the fold carries it", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    const r = createWorkItem(item, snap, { type: "task", title: "Sub", assignee: "Sam", parentWiId: "PAY-418" }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const snap2 = deriveItem(withEvent(item, r.event));
+    const sub = snap2.workItems.find((w) => w.id === r.event.wiId)!;
+    expect(sub.parentWiId).toBe("PAY-418");
+  });
+
+  it("createWorkItem rejects an unknown parent", () => {
+    const item = makeItem();
+    const r = createWorkItem(item, deriveItem(item), { type: "task", title: "Sub", assignee: "", parentWiId: "PAY-999" }, PM, "PM");
+    expect(r.ok).toBe(false);
+  });
+
+  it("createWorkItem rejects nesting under a subtask (one level only)", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    const r1 = createWorkItem(item, snap, { type: "task", title: "Sub", assignee: "", parentWiId: "PAY-418" }, PM, "PM");
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    const item2 = withEvent(item, r1.event);
+    const snap2 = deriveItem(item2);
+    const r2 = createWorkItem(item2, snap2, { type: "task", title: "SubSub", assignee: "", parentWiId: r1.event.wiId! }, PM, "PM");
+    expect(r2.ok).toBe(false);
+  });
+
+  it("updateWorkItem sets and clears parentWiId; rejects self-parent", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    const set = updateWorkItem(item, snap, "PAY-420", { parentWiId: "PAY-418" }, PM, "PM");
+    expect(set.ok).toBe(true);
+    if (!set.ok) return;
+    const item2 = withEvent(item, set.event);
+    expect(deriveItem(item2).workItems.find((w) => w.id === "PAY-420")!.parentWiId).toBe("PAY-418");
+
+    const self = updateWorkItem(item2, deriveItem(item2), "PAY-420", { parentWiId: "PAY-420" }, PM, "PM");
+    expect(self.ok).toBe(false);
+
+    const clear = updateWorkItem(item2, deriveItem(item2), "PAY-420", { parentWiId: undefined }, PM, "PM");
+    expect(clear.ok).toBe(true);
+    if (!clear.ok) return;
+    const item3 = withEvent(item2, clear.event);
+    expect(deriveItem(item3).workItems.find((w) => w.id === "PAY-420")!.parentWiId).toBeUndefined();
+  });
+
+  it("updateWorkItem rejects parenting a WI that has its own subtasks", () => {
+    const item = makeItem();
+    const set = updateWorkItem(item, deriveItem(item), "PAY-420", { parentWiId: "PAY-418" }, PM, "PM");
+    expect(set.ok).toBe(true);
+    if (!set.ok) return;
+    const item2 = withEvent(item, set.event);
+    // PAY-418 now has subtask PAY-420 — it can't itself become a subtask
+    const r = updateWorkItem(item2, deriveItem(item2), "PAY-418", { parentWiId: "PAY-420" }, PM, "PM");
+    expect(r.ok).toBe(false);
+  });
+
+  it("wiSubtasks lists direct subtasks", () => {
+    const item = makeItem();
+    const set = updateWorkItem(item, deriveItem(item), "PAY-420", { parentWiId: "PAY-418" }, PM, "PM");
+    if (!set.ok) return;
+    const snap = deriveItem(withEvent(item, set.event));
+    expect(wiSubtasks(snap, "PAY-418").map((w) => w.id)).toEqual(["PAY-420"]);
+    expect(wiSubtasks(snap, "PAY-420")).toEqual([]);
+  });
+
+  it("a parent can't move to done while a subtask is open", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "Parent", state: "in_review", assignee: "Sam" },
+      { id: "PAY-420", type: "task", title: "Sub", state: "todo", assignee: "", parentWiId: "PAY-418" },
+    ];
+    const item = makeItem(wis);
+    const snap = deriveItem(item);
+    const r = transitionWorkItem(item, snap, "PAY-418", "done", PM, "PM");
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toMatch(/subtask/i);
+  });
+
+  it("a parent moves to done once all subtasks are done", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "Parent", state: "in_review", assignee: "Sam" },
+      { id: "PAY-420", type: "task", title: "Sub", state: "done", assignee: "", parentWiId: "PAY-418" },
+    ];
+    const item = makeItem(wis);
+    const r = transitionWorkItem(item, deriveItem(item), "PAY-418", "done", PM, "PM");
+    expect(r.ok).toBe(true);
+  });
+
+  it("deleting the parent orphans the subtask at derive time", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "Parent", state: "todo", assignee: "Sam" },
+      { id: "PAY-420", type: "task", title: "Sub", state: "todo", assignee: "", parentWiId: "PAY-418" },
+    ];
+    const item = makeItem(wis, [seedCreate(), E2("WI_DELETE", { wiId: "PAY-418" })]);
+    const snap = deriveItem(item);
+    expect(snap.workItems.find((w) => w.id === "PAY-420")!.parentWiId).toBeUndefined();
+  });
+});
+
+/* ---------------- time tracking (estimates + WI_WORKLOG) ---------------- */
+import { logWork } from "./engine";
+
+describe("time tracking", () => {
+  it("updateWorkItem sets estimates and rejects negatives", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    const bad = updateWorkItem(item, snap, "PAY-418", { originalEstimate: -1 }, PM, "PM");
+    expect(bad.ok).toBe(false);
+    const r = updateWorkItem(item, snap, "PAY-418", { originalEstimate: 8, remainingEstimate: 8 }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const wi = deriveItem(withEvent(item, r.event)).workItems.find((w) => w.id === "PAY-418")!;
+    expect(wi.originalEstimate).toBe(8);
+    expect(wi.remainingEstimate).toBe(8);
+  });
+
+  it("logWork appends a worklog, accumulates timeSpent and decrements remaining (floor 0)", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "T", state: "in_progress", assignee: "Sam", remainingEstimate: 5 },
+    ];
+    let item = makeItem(wis);
+    const r1 = logWork(item, deriveItem(item), "PAY-418", 3, "spike", PM, "PM");
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    item = withEvent(item, r1.event);
+    let wi = deriveItem(item).workItems.find((w) => w.id === "PAY-418")!;
+    expect(wi.timeSpent).toBe(3);
+    expect(wi.remainingEstimate).toBe(2);
+    expect(wi.worklogs).toHaveLength(1);
+    expect(wi.worklogs![0].hours).toBe(3);
+    expect(wi.worklogs![0].text).toBe("spike");
+
+    const r2 = logWork(item, deriveItem(item), "PAY-418", 4, "", PM, "PM");
+    if (!r2.ok) return;
+    item = withEvent(item, r2.event);
+    wi = deriveItem(item).workItems.find((w) => w.id === "PAY-418")!;
+    expect(wi.timeSpent).toBe(7);
+    expect(wi.remainingEstimate).toBe(0); // floored, never negative
+    expect(wi.worklogs).toHaveLength(2);
+  });
+
+  it("logWork rejects bad hours and unknown work items", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    expect(logWork(item, snap, "PAY-418", 0, "", PM, "PM").ok).toBe(false);
+    expect(logWork(item, snap, "PAY-418", -2, "", PM, "PM").ok).toBe(false);
+    expect(logWork(item, snap, "PAY-418", Number.NaN, "", PM, "PM").ok).toBe(false);
+    expect(logWork(item, snap, "PAY-999", 1, "", PM, "PM").ok).toBe(false);
+  });
+
+  it("worklogs survive unrelated WI_UPDATEs (derived, not clobbered)", () => {
+    const wis: WorkItem[] = [{ id: "PAY-418", type: "story", title: "T", state: "todo", assignee: "Sam" }];
+    let item = makeItem(wis);
+    const r1 = logWork(item, deriveItem(item), "PAY-418", 2, "", PM, "PM");
+    if (!r1.ok) return;
+    item = withEvent(item, r1.event);
+    const r2 = updateWorkItem(item, deriveItem(item), "PAY-418", { title: "T2" }, PM, "PM");
+    if (!r2.ok) return;
+    item = withEvent(item, r2.event);
+    const wi = deriveItem(item).workItems.find((w) => w.id === "PAY-418")!;
+    expect(wi.timeSpent).toBe(2);
+    expect(wi.worklogs).toHaveLength(1);
+  });
+});
