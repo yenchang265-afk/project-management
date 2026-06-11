@@ -5,6 +5,7 @@ import {
   deriveItem, legalWiMoves,
   type Item, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
+import { parseCql, runCql, type CqlRow } from "@/lib/cql";
 import { TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 /* Flat, spreadsheet-style list of every work item across the visible items
@@ -31,6 +32,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
   const [fType, setFType] = useState<"" | WiType>("");
   const [fState, setFState] = useState<"" | WiState>("");
   const [fAssignee, setFAssignee] = useState("");
+  const [cql, setCql] = useState("");
 
   const all: Row[] = useMemo(
     () => items.flatMap((it) => deriveItem(it).workItems.map((wi) => ({ itemId: it.id, itemTitle: it.title, wi }))),
@@ -41,7 +43,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
     [all],
   );
 
-  const rows = all.filter((r) => {
+  const basic = all.filter((r) => {
     if (fType && r.wi.type !== fType) return false;
     if (fState && r.wi.state !== fState) return false;
     if (fAssignee && r.wi.assignee !== fAssignee) return false;
@@ -52,6 +54,24 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
     }
     return true;
   });
+
+  // CQL pass (AND-combined with the basic filters above): parse on every
+  // keystroke, surface the parse error inline, never throw.
+  const cqlParsed = cql.trim() ? parseCql(cql) : null;
+  const rows = (() => {
+    if (!cqlParsed?.ok) return basic; // no query, or a parse error (shown inline) — fall back to the basic filters
+    const byKey = new Map(basic.map((r) => [r.itemId + ":" + r.wi.id, r]));
+    const cqlRows: CqlRow[] = basic.map((r) => ({
+      id: r.wi.id, title: r.wi.title, item: r.itemId,
+      type: r.wi.type, state: r.wi.state, assignee: r.wi.assignee,
+      sprint: r.wi.sprint, points: r.wi.storyPoints, priority: r.wi.priority,
+      severity: r.wi.severity, phase: r.wi.phase, tags: r.wi.tags || [],
+      parent: r.wi.parentWiId, cf: r.wi.customFields || {},
+    }));
+    return runCql(cqlParsed.query, cqlRows)
+      .map((cr) => byKey.get(cr.item + ":" + cr.id)!)
+      .filter(Boolean);
+  })();
 
   function exportCsv() {
     const head = ["id", "title", "item", "item_title", "type", "state", "assignee", "sprint", "story_points", "priority", "time_spent_h", "remaining_h", "tags"];
@@ -97,6 +117,13 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
             <option value="">All assignees</option>
             {assignees.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+        </div>
+        <div style={{ paddingBottom: 8 }}>
+          <input value={cql} aria-label="CQL query" className="mono" style={{ width: "100%" }}
+            placeholder='CQL: state = todo AND points > 2 ORDER BY points DESC  ·  fields: id title item type state assignee sprint points priority severity phase tag parent cf.<key>'
+            onChange={(e) => setCql(e.target.value)} />
+          {cqlParsed && !cqlParsed.ok &&
+            <div className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11, paddingTop: 4 }}>⚠ {cqlParsed.error}</div>}
         </div>
         <div className="scroll" style={{ maxHeight: "70vh", overflow: "auto" }}>
           <table className="list-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
