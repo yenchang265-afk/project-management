@@ -6,6 +6,7 @@ import {
   gateStatus,
   legalTransitions,
   applyTransition,
+  itemBlockedBy,
   timeInState,
   reworkRate,
   leadTime,
@@ -299,5 +300,128 @@ describe("analytics", () => {
     expect(["behind", "ahead", "on_track"]).toContain(pa.status);
     expect(pa.phases[0].done).toBe(true); // backlog is behind current spine
     expect(pa.phases.find((p) => p.key === "in_discovery")?.current).toBe(true);
+  });
+});
+
+/* ---------------- item-level links (ITEM_LINK / ITEM_UNLINK) ----------------
+   Informational v1 — links never gate transitions; the inverse direction is
+   computed by callers via itemBlockedBy (mirror of wiBlockedBy). */
+describe("item links — fold", () => {
+  it("snapshot starts with no links", () => {
+    const snap = deriveItem(makeItem([E(1, "CREATE", { to: "backlog" })]));
+    expect(snap.links).toEqual([]);
+  });
+
+  it("ITEM_LINK folds into snap.links", () => {
+    const snap = deriveItem(makeItem([
+      E(2, "CREATE", { to: "backlog" }),
+      E(1, "ITEM_LINK", { to: "TEST-2", linkKind: "blocks" }),
+    ]));
+    expect(snap.links).toEqual([{ to: "TEST-2", linkKind: "blocks" }]);
+  });
+
+  it("duplicate ITEM_LINK events de-dupe to one link", () => {
+    const snap = deriveItem(makeItem([
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_LINK", { to: "TEST-2", linkKind: "relates" }),
+      E(1, "ITEM_LINK", { to: "TEST-2", linkKind: "relates" }),
+    ]));
+    expect(snap.links).toEqual([{ to: "TEST-2", linkKind: "relates" }]);
+  });
+
+  it("multiple kinds to the same target (and same kind to other targets) coexist", () => {
+    const snap = deriveItem(makeItem([
+      E(4, "CREATE", { to: "backlog" }),
+      E(3, "ITEM_LINK", { to: "TEST-2", linkKind: "blocks" }),
+      E(2, "ITEM_LINK", { to: "TEST-2", linkKind: "relates" }),
+      E(1, "ITEM_LINK", { to: "TEST-3", linkKind: "blocks" }),
+    ]));
+    expect(snap.links).toEqual([
+      { to: "TEST-2", linkKind: "blocks" },
+      { to: "TEST-2", linkKind: "relates" },
+      { to: "TEST-3", linkKind: "blocks" },
+    ]);
+  });
+
+  it("ITEM_UNLINK removes only the matching {to, linkKind} pair", () => {
+    const snap = deriveItem(makeItem([
+      E(5, "CREATE", { to: "backlog" }),
+      E(4, "ITEM_LINK", { to: "TEST-2", linkKind: "blocks" }),
+      E(3, "ITEM_LINK", { to: "TEST-2", linkKind: "relates" }),
+      E(2, "ITEM_LINK", { to: "TEST-3", linkKind: "blocks" }),
+      E(1, "ITEM_UNLINK", { to: "TEST-2", linkKind: "blocks" }),
+    ]));
+    expect(snap.links).toEqual([
+      { to: "TEST-2", linkKind: "relates" },
+      { to: "TEST-3", linkKind: "blocks" },
+    ]);
+  });
+
+  it("a link can be re-added after an unlink", () => {
+    const snap = deriveItem(makeItem([
+      E(4, "CREATE", { to: "backlog" }),
+      E(3, "ITEM_LINK", { to: "TEST-2", linkKind: "blocks" }),
+      E(2, "ITEM_UNLINK", { to: "TEST-2", linkKind: "blocks" }),
+      E(1, "ITEM_LINK", { to: "TEST-2", linkKind: "blocks" }),
+    ]));
+    expect(snap.links).toEqual([{ to: "TEST-2", linkKind: "blocks" }]);
+  });
+
+  it("links are informational — they do not gate transitions", () => {
+    // TEST-1 carries an outgoing blocks link; applyTransition is single-item
+    // and ignores links entirely, so the spine still moves.
+    const item = makeItem([
+      E(2, "CREATE", { to: "backlog" }),
+      E(1, "ITEM_LINK", { to: "TEST-2", linkKind: "blocks" }),
+    ]);
+    const r = applyTransition(item, "in_discovery", "Maya Chen", "PM", null);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("itemBlockedBy", () => {
+  function namedItem(id: string, events: PdlcEvent[]): Item {
+    return { ...makeItem(events.map((e) => ({ ...e, item: id }))), id };
+  }
+
+  it("returns ids of open items with a blocks link pointing at the item", () => {
+    const a = namedItem("TEST-A", [E(2, "CREATE", { to: "backlog" })]);
+    const b = namedItem("TEST-B", [
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "TRANSITION", { from: "backlog", to: "in_discovery", kind: "forward" }),
+      E(1, "ITEM_LINK", { to: "TEST-A", linkKind: "blocks" }),
+    ]);
+    expect(itemBlockedBy(a, [a, b])).toEqual(["TEST-B"]);
+    expect(itemBlockedBy(b, [a, b])).toEqual([]); // direction matters
+  });
+
+  it("a done (closed-lane) blocker no longer blocks", () => {
+    const a = namedItem("TEST-A", [E(3, "CREATE", { to: "backlog" })]);
+    const b = namedItem("TEST-B", [
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_LINK", { to: "TEST-A", linkKind: "blocks" }),
+      E(1, "TRANSITION", { from: "monitoring", to: "done", kind: "forward" }),
+    ]);
+    expect(itemBlockedBy(a, [a, b])).toEqual([]);
+  });
+
+  it("non-blocks links and links to other items don't count", () => {
+    const a = namedItem("TEST-A", [E(2, "CREATE", { to: "backlog" })]);
+    const b = namedItem("TEST-B", [
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_LINK", { to: "TEST-A", linkKind: "relates" }),
+      E(1, "ITEM_LINK", { to: "TEST-C", linkKind: "blocks" }),
+    ]);
+    expect(itemBlockedBy(a, [a, b])).toEqual([]);
+  });
+
+  it("an unlinked blocker stops blocking", () => {
+    const a = namedItem("TEST-A", [E(3, "CREATE", { to: "backlog" })]);
+    const b = namedItem("TEST-B", [
+      E(3, "CREATE", { to: "backlog" }),
+      E(2, "ITEM_LINK", { to: "TEST-A", linkKind: "blocks" }),
+      E(1, "ITEM_UNLINK", { to: "TEST-A", linkKind: "blocks" }),
+    ]);
+    expect(itemBlockedBy(a, [a, b])).toEqual([]);
   });
 });

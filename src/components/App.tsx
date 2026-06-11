@@ -13,11 +13,12 @@ import {
   type SubtrackState, type TrackKey, type TransitionDef, type WiLinkType, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import {
-  assignItemProject, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
+  assignItemProject, bulkCommands, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
   fetchAnnouncements, fetchItems, fetchMe, fetchNotifications, fetchStructure, fetchUsers,
-  logout, markNotificationsRead, postCommand, postSpawn, renameOrg, setTeamOrg, teamMemberOp, teamProjectOp,
+  logout, markNotificationsRead, postCommand, postSpawn, renameOrg, searchAll, setTeamOrg, teamMemberOp, teamProjectOp,
   type AnnouncementInfo, type AnnouncementScope, type ApiUser, type NotificationInfo, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
+import type { SearchHit } from "@/lib/search";
 import { timeAgo } from "@/lib/format";
 import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
@@ -101,6 +102,9 @@ export default function App() {
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [query, setQuery] = useState("");
+  // "Search everything" — server-side hits complementing the local Navigator filter.
+  // null = dropdown closed (query too short / cleared); [] = searched, no matches.
+  const [searchHits, setSearchHits] = useState<SearchHit[] | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   // versionsRef mirrors `versions` so queued commands read the LATEST version, not a
   // stale render closure; queues serialize commands per item (rapid edits would
@@ -152,6 +156,18 @@ export default function App() {
     const t = setInterval(() => void load(), 30_000);
     return () => { live = false; clearInterval(t); };
   }, [me]);
+
+  // server search: debounce 300ms, only for queries of 2+ chars; stale responses are dropped
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setSearchHits(null); return; }
+    let live = true;
+    const t = setTimeout(async () => {
+      const r = await searchAll(q);
+      if (live && r.ok) setSearchHits(r.data.results);
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [query]);
 
   function pushToast(o: Omit<Toast, "id">) {
     const id = Date.now() + "_" + Math.random().toString(36).slice(2, 5);
@@ -301,6 +317,24 @@ export default function App() {
   function rankWi(wiId: string, toIndex: number) {
     void sendCmd(item.id, { kind: "wiReorder", wiId, toIndex });
   }
+  /* ---- bulk edit: one wiUpdate per selected WI in a single request.
+     Ops apply sequentially server-side, so expectedVersion climbs per op;
+     after the response we refetch (the existing reload path) to reconcile. ---- */
+  async function bulkEditWis(wiIds: string[], patch: Record<string, unknown>) {
+    if (!wiIds.length) return;
+    const itemId = item.id;
+    const base = versionsRef.current[itemId] ?? item.events.length;
+    const r = await bulkCommands(wiIds.map((wiId, i) => ({
+      itemId, expectedVersion: base + i, command: { kind: "wiUpdate", wiId, patch },
+    })));
+    await refreshItems(); // reconcile regardless of per-op outcomes
+    if (!r.ok) { pushToast({ ok: false, message: r.error }); return; }
+    const okN = r.data.results.filter((x) => x.status === "ok").length;
+    if (okN === wiIds.length)
+      pushToast({ ok: true, message: `Updated ${okN} work item${okN === 1 ? "" : "s"}` });
+    else
+      pushToast({ ok: false, message: `Bulk edit: ${okN}/${wiIds.length} applied — view refreshed, try the rest again.` });
+  }
   function openFromBoard(itemId: string, wiId: string) {
     setSelId(itemId);
     setOpenWiId(wiId);
@@ -309,6 +343,13 @@ export default function App() {
     setSelId(id);
     setMode("projects");
     setView("detail");
+  }
+  // "Search everything" result → jump to the item (and open the WI drawer if the hit is a work item)
+  function openSearchHit(h: SearchHit) {
+    selectItem(h.itemId);
+    setOpenWiId(h.wiId ?? null);
+    setQuery("");          // clears the input + closes the dropdown
+    setSearchHits(null);
   }
   // selecting a team opens its TeamSpace inside the Organization workspace
   function selectTeam(teamId: string) {
@@ -578,6 +619,22 @@ export default function App() {
                 placeholder={mode === "org" ? "Search all orgs…" : "Search items…"} />
               {query && <button className="ns-x" onClick={() => setQuery("")}>×</button>}
             </div>
+            {/* server-side "Search everything" — complements the local tree filter above */}
+            {searchHits !== null &&
+              <div className="search-pop" role="listbox" aria-label="Search everything">
+                <div className="search-pop-head">Search everything</div>
+                {searchHits.length === 0 &&
+                  <div className="search-pop-empty">No matches across your items.</div>}
+                {searchHits.map((h, i) => (
+                  <button key={h.itemId + ":" + (h.wiId ?? "") + ":" + i} className="search-hit" role="option"
+                    onClick={() => openSearchHit(h)}>
+                    <span className="sh-id mono">{h.wiId ?? h.itemId}</span>
+                    <span className="sh-title">{h.wiId ? h.wiTitle : h.title}</span>
+                    {h.wiId && <span className="sh-in">in {h.itemId}</span>}
+                    <span className="sh-field mono">{h.field === "wi_title" ? "title" : h.field.replace("wi_", "")}</span>
+                  </button>
+                ))}
+              </div>}
             {mode === "projects" && <div className="lanefilter">
               {LANE_FILTERS.map((f) => (
                 <button key={f.key} data-on={filter === f.key} onClick={() => setFilter(f.key)}>
@@ -719,8 +776,9 @@ export default function App() {
               <div className="stack">
                 <Stakeholders item={item} snap={snap} />
                 <WorkItems key={item.id} item={item} snap={snap} role={role}
+                  teamIds={itemProject?.teamIds ?? []}
                   onCreate={addWorkItem} onUpdate={editWorkItem} onDelete={removeWorkItem} onOpen={setOpenWiId}
-                  onMove={moveWorkItem} onReorder={rankWi} />
+                  onMove={moveWorkItem} onReorder={rankWi} onBulkUpdate={(ids, patch) => void bulkEditWis(ids, patch)} />
                 <ItemComments snap={snap} onComment={commentOnItem} />
                 <History item={item} />
                 <Analytics item={item} />

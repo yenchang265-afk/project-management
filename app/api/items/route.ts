@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ev, type Item } from "@/lib/engine";
 import { withAuth } from "@/server/auth";
+import { requirePerm } from "@/server/permissions";
 import { getAllItems, spawnChild } from "@/server/repo/items";
 import { getScope, itemInScope } from "@/server/scope";
 
@@ -24,8 +25,8 @@ const SpawnSchema = z.object({
 
 /** Spawn the next iteration of an item (PM-owned, same rule the UI enforced). */
 export const POST = withAuth(async (req, user) => {
-  if (user.role !== "PM")
-    return NextResponse.json({ success: false, error: "Only PM can spawn the next iteration." }, { status: 403 });
+  const guard = requirePerm(user, "spawn_iteration");
+  if (guard) return guard;
 
   let body: unknown;
   try { body = await req.json(); } catch {

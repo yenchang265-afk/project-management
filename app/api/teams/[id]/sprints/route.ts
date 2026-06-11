@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/server/auth";
-import { parseBody, requirePM } from "@/server/http";
+import { parseBody } from "@/server/http";
+import { requirePerm } from "@/server/permissions";
 import { CreateSprintSchema } from "@/server/sprint-schemas";
 import { createSprint, isTeamMember, listSprints } from "@/server/repo/sprints";
 
@@ -16,7 +17,7 @@ export const GET = withAuth<Ctx>(async (_req, user, ctx) => {
 });
 
 export const POST = withAuth<Ctx>(async (req, user, ctx) => {
-  const guard = requirePM(user);
+  const guard = requirePerm(user, "manage_sprints");
   if (guard) return guard;
   const { id: teamId } = await ctx.params;
   const body = await parseBody(req, CreateSprintSchema);

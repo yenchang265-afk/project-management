@@ -1,6 +1,7 @@
 /* Client-side API helpers — thin typed wrapper over fetch + the response envelope.
    A 401 anywhere redirects to /login (session expired or not signed in). */
 import type { Item, PdlcEvent, Role } from "./engine";
+import type { SearchHit } from "./search";
 import type { SprintState } from "./sprints";
 
 export interface ApiUser { id: string; email: string; name: string; role: Role; }
@@ -45,6 +46,10 @@ export interface AnnouncementInfo {
 }
 
 export const fetchMe = () => call<{ user: ApiUser }>("/api/auth/me");
+
+/** Server-side "search everything" over the caller's scoped items. */
+export const searchAll = (q: string) =>
+  call<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`);
 export const fetchItems = () => call<{ items: Item[]; versions: Record<string, number> }>("/api/items");
 export const fetchStructure = () => call<Structure>("/api/structure");
 export const logout = () => call<Record<string, never>>("/api/auth/logout", { method: "POST" });
@@ -55,6 +60,18 @@ export function postCommand(itemId: string, command: unknown, expectedVersion: n
     body: JSON.stringify({ command, expectedVersion }),
   });
 }
+
+/* ---------- bulk commands (1..50 ops; partial success — caller refetches) ---------- */
+export interface BulkOp { itemId: string; expectedVersion: number; command: unknown; }
+export interface BulkOpResult {
+  itemId: string; status: "ok" | "stale" | "rejected" | "not_found";
+  version?: number; event?: PdlcEvent; error?: string;
+}
+
+export const bulkCommands = (ops: BulkOp[]) =>
+  call<{ results: BulkOpResult[] }>("/api/items/bulk", {
+    method: "POST", body: JSON.stringify({ ops }),
+  });
 
 export function postSpawn(spawnFrom: string, expectedVersion: number) {
   return call<{ child: Item; parentEvent: PdlcEvent; parentVersion: number }>("/api/items", {

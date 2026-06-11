@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth } from "@/server/auth";
-import { parseBody, requirePM } from "@/server/http";
+import { parseBody } from "@/server/http";
+import { requirePerm } from "@/server/permissions";
 import { assignItemProject } from "@/server/repo/structure";
 
 const AssignSchema = z.object({ projectId: z.string().min(1).max(36).nullable() }).strict();
@@ -9,7 +10,7 @@ const AssignSchema = z.object({ projectId: z.string().min(1).max(36).nullable() 
 type Ctx = { params: Promise<{ id: string }> };
 
 export const PATCH = withAuth<Ctx>(async (req, user, ctx) => {
-  const guard = requirePM(user);
+  const guard = requirePerm(user, "assign_item_project");
   if (guard) return guard;
   const { id: itemId } = await ctx.params;
   const body = await parseBody(req, AssignSchema);

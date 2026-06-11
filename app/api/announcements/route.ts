@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth } from "@/server/auth";
-import { parseBody, requirePM } from "@/server/http";
+import { parseBody } from "@/server/http";
+import { requirePerm } from "@/server/permissions";
 import { createAnnouncement, getAnnouncements } from "@/server/repo/announcements";
 import { getScope } from "@/server/scope";
 
@@ -19,7 +20,7 @@ const CreateSchema = z.object({
 }).strict();
 
 export const POST = withAuth(async (req, user) => {
-  const guard = requirePM(user);
+  const guard = requirePerm(user, "manage_announcements");
   if (guard) return guard;
   const body = await parseBody(req, CreateSchema);
   if (!body.ok) return body.res;

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth } from "@/server/auth";
-import { parseBody, requirePM } from "@/server/http";
+import { parseBody } from "@/server/http";
+import { requirePerm } from "@/server/permissions";
 import { deleteOrg, renameOrg } from "@/server/repo/structure";
 
 const RenameSchema = z.object({ name: z.string().min(2).max(128) }).strict();
@@ -9,7 +10,7 @@ const RenameSchema = z.object({ name: z.string().min(2).max(128) }).strict();
 type Ctx = { params: Promise<{ id: string }> };
 
 export const PATCH = withAuth<Ctx>(async (req, user, ctx) => {
-  const guard = requirePM(user);
+  const guard = requirePerm(user, "manage_orgs");
   if (guard) return guard;
   const { id } = await ctx.params;
   const body = await parseBody(req, RenameSchema);
@@ -20,7 +21,7 @@ export const PATCH = withAuth<Ctx>(async (req, user, ctx) => {
 });
 
 export const DELETE = withAuth<Ctx>(async (_req, user, ctx) => {
-  const guard = requirePM(user);
+  const guard = requirePerm(user, "manage_orgs");
   if (guard) return guard;
   const { id } = await ctx.params;
   const r = await deleteOrg(id);
