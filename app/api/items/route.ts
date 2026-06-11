@@ -6,8 +6,8 @@ import { getAllItems, spawnChild } from "@/server/repo/items";
 import { getScope, itemInScope } from "@/server/scope";
 
 export const GET = withAuth(async (_req, user) => {
-  const scope = await getScope(user);
-  const rows = (await getAllItems()).filter((r) => itemInScope(r.item.project ?? null, scope));
+  const [allItems, scope] = await Promise.all([getAllItems(), getScope(user)]);
+  const rows = allItems.filter((r) => itemInScope(r.item.project ?? null, scope));
   return NextResponse.json({
     success: true,
     data: {

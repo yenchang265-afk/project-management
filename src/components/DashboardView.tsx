@@ -20,13 +20,15 @@ const LANES: { key: Lane; label: string }[] = [
   { key: "closed", label: "Closed" },
 ];
 
-function laneOf(it: Item): Lane {
-  const lane = STATES[deriveItem(it).state].lane;
+type Snap = ReturnType<typeof deriveItem>;
+
+function laneOf(snap: Snap): Lane {
+  const lane = STATES[snap.state].lane;
   return lane === "off" ? "closed" : lane;
 }
-function spread(items: Item[]): Record<Lane, number> {
+function spread(snaps: Snap[]): Record<Lane, number> {
   const out = { discovery: 0, build: 0, verify: 0, release: 0, closed: 0, off: 0 } as Record<Lane, number>;
-  items.forEach((it) => { out[laneOf(it)]++; });
+  snaps.forEach((s) => { out[laneOf(s)]++; });
   return out;
 }
 
@@ -51,16 +53,19 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
     onSelectItem: (id: string) => void; onOpenWork: (itemId: string, wiId: string) => void }) {
   const isAdmin = me.role === "PM";
   const total = items.length;
-  const counts = spread(items);
-  const riskItems = items.filter((it) => deriveItem(it).activeRisks.size > 0);
+  // derive each item once; every rollup below reads from these snapshots
+  const snaps = items.map(deriveItem);
+  const snapById = new Map(items.map((it, i) => [it.id, snaps[i]]));
+  const counts = spread(snaps);
+  const riskItems = snaps.filter((s) => s.activeRisks.size > 0);
 
   const myTeams = teams.filter((t) => t.members.some((m) => m.id === me.id));
   const myOrgIds = new Set(myTeams.map((t) => t.orgId).filter(Boolean) as string[]);
   const myOrgs = orgs.filter((o) => myOrgIds.has(o.id));
 
   // work items assigned to me, across everything I can see
-  const myWork = items.flatMap((it) =>
-    deriveItem(it).workItems
+  const myWork = items.flatMap((it, i) =>
+    snaps[i].workItems
       .filter((w) => w.assignee && w.assignee === me.name)
       .map((w) => ({ id: w.id, title: w.title, state: w.state, itemId: it.id, itemTitle: it.title })));
 
@@ -110,6 +115,7 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
                 <div className="proj-health">
                   {projects.map((p) => {
                     const pit = items.filter((it) => it.project === p.id);
+                    const psnaps = pit.map((it) => snapById.get(it.id)!);
                     return (
                       <div className="ph-row" key={p.id}>
                         <div className="ph-meta">
@@ -117,7 +123,7 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
                           <span className="ph-name">{p.name}</span>
                           <span className="ph-count mono">{pit.length}</span>
                         </div>
-                        <LaneBar counts={spread(pit)} total={pit.length} />
+                        <LaneBar counts={spread(psnaps)} total={pit.length} />
                       </div>
                     );
                   })}

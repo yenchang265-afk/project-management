@@ -25,7 +25,7 @@ export const POST = withAuth(async (req, user) => {
   if (!body.ok) return body.res;
   const d = body.data;
   const r = await createAnnouncement(
-    d.scopeType, d.scopeType === "company" ? null : d.scopeId ?? null,
+    d.scopeType, d.scopeId ?? null,
     d.title.trim(), d.body?.trim() || null, user.name);
   if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 422 });
   return NextResponse.json({ success: true, data: { id: r.id } });

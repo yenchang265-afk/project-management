@@ -90,8 +90,7 @@ async function devBypassUser(): Promise<AuthedUser | null> {
 export async function currentUser(): Promise<AuthedUser | null> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
-  if (!token) return devBypassEnabled() ? devBypassUser() : null;
-  const user = await sessionUser(token);
+  const user = token ? await sessionUser(token) : null;
   if (user) return user;
   return devBypassEnabled() ? devBypassUser() : null;
 }

@@ -65,9 +65,8 @@ export function OrgView({ meId, selOrgId, orgs, projects, teams, items, announce
   const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
 
   // resolve the selected org (or the "Unassigned" pseudo-org of orgless teams)
-  const unassigned = teams.filter((t) => !t.orgId);
   const org = selOrgId === "__unassigned"
-    ? { id: "__unassigned", name: "Unassigned", teamIds: unassigned.map((t) => t.id) } as OrgInfo
+    ? { id: "__unassigned", name: "Unassigned", teamIds: teams.filter((t) => !t.orgId).map((t) => t.id) } as OrgInfo
     : orgs.find((o) => o.id === selOrgId) ?? null;
 
   if (!org) {

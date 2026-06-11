@@ -11,8 +11,8 @@ export const POST = withAuth<Ctx>(async (req, user, ctx) => {
   const { id } = await ctx.params;
 
   // access gate: out-of-scope items are 404 (can't read, can't mutate)
-  const found = await getItem(id);
-  if (!found || !itemInScope(found.item.project ?? null, await getScope(user)))
+  const [found, scope] = await Promise.all([getItem(id), getScope(user)]);
+  if (!found || !itemInScope(found.item.project ?? null, scope))
     return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
 
   let body: unknown;
