@@ -298,3 +298,32 @@ describe("phase 8 commands", () => {
     expect(parsed.success).toBe(false);
   });
 });
+
+describe("custom fields over the wire", () => {
+  it("wiUpdate accepts a customFields delta with per-key nulls", () => {
+    const wi: WorkItem = { ...WI, customFields: { a: "1" } };
+    const item = makeItem([wi]);
+    const r = runCommand(item,
+      { kind: "wiUpdate", wiId: "PAY-418", patch: { customFields: { a: null, b: "2" } } } as Command,
+      PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.wi?.customFields).toEqual({ a: null, b: "2" });
+  });
+
+  it("schema rejects oversized custom-field payloads", () => {
+    const big = Object.fromEntries(Array.from({ length: 30 }, (_, i) => ["k" + i, "v"]));
+    const parsed = CommandSchema.safeParse({ kind: "wiUpdate", wiId: "PAY-418", patch: { customFields: big } });
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("custom fields schema acceptance", () => {
+  it("schema accepts a valid customFields delta", () => {
+    const parsed = CommandSchema.safeParse({
+      kind: "wiUpdate", wiId: "PAY-418",
+      patch: { customFields: { team_area: "checkout", build: 42, gone: null } },
+    });
+    expect(parsed.success).toBe(true);
+  });
+});

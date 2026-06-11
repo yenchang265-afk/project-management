@@ -47,6 +47,8 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
   const [remBuf, setRemBuf] = useState(w?.remainingEstimate != null ? String(w.remainingEstimate) : "");
   const [logHours, setLogHours] = useState("");
   const [logNote, setLogNote] = useState("");
+  const [cfKey, setCfKey] = useState("");
+  const [cfVal, setCfVal] = useState("");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -91,6 +93,7 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
   const subtasks = wiSubtasks(snap, wiId);
   const parentables = snap.workItems.filter((x) => x.id !== wiId && !x.parentWiId);
   const worklogs = w.worklogs || [];
+  const customFields = w.customFields || {};
 
   function commitTitle() {
     const t = title.trim();
@@ -135,6 +138,13 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
     const n = Number(raw);
     if (Number.isFinite(n) && n >= 0) { if (n !== cur) onUpdate(wiId, { [key]: n }); }
     else setBuf(cur != null ? String(cur) : "");
+  }
+  function addCustomField() {
+    const k = cfKey.trim(), v = cfVal.trim();
+    if (!k || !v) return;
+    const n = Number(v);
+    onUpdate(wiId, { customFields: { [k]: v !== "" && Number.isFinite(n) && v === String(n) ? n : v } });
+    setCfKey(""); setCfVal("");
   }
   function submitWorklog() {
     const n = Number(logHours);
@@ -253,6 +263,27 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); } }}
                 onBlur={() => { if (tagInput.trim()) addTag(); }} />
+            </div>
+          </div>
+
+          <div className="wi-field block"><span>Custom fields <span className="wi-cc">{Object.keys(customFields).length}</span></span>
+            <div className="wi-links">
+              {Object.keys(customFields).length === 0 && <div className="wi-empty">No custom fields.</div>}
+              {Object.entries(customFields).map(([k, v]) => (
+                <div className="wi-link-row" key={k}>
+                  <span className="wi-link-kind">{k}</span>
+                  <span className="wi-link-title">{String(v)}</span>
+                  <button className="wi-act del" title={`Remove ${k}`}
+                    onClick={() => onUpdate(wiId, { customFields: { [k]: null } as unknown as Record<string, string> })}>✕</button>
+                </div>
+              ))}
+            </div>
+            <div className="wi-link-add">
+              <input value={cfKey} placeholder="field" aria-label="Custom field name" maxLength={64}
+                onChange={(e) => setCfKey(e.target.value)} style={{ width: 110 }} />
+              <input value={cfVal} placeholder="value" aria-label="Custom field value" maxLength={2000}
+                onChange={(e) => setCfVal(e.target.value)} style={{ flex: 1 }} />
+              <button className="wi-act ok" title="Set field" onClick={addCustomField} disabled={!cfKey.trim() || !cfVal.trim()}>＋</button>
             </div>
           </div>
 

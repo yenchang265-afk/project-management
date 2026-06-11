@@ -494,3 +494,54 @@ describe("time tracking", () => {
     expect(wi.worklogs).toHaveLength(1);
   });
 });
+
+/* ---------------- custom fields (free-form key→value map, per-key patch) ---------------- */
+describe("custom fields", () => {
+  it("updateWorkItem sets custom field values", () => {
+    const item = makeItem();
+    const r = updateWorkItem(item, deriveItem(item), "PAY-418",
+      { customFields: { team_area: "checkout", build: 42 } }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const wi = deriveItem(withEvent(item, r.event)).workItems.find((w) => w.id === "PAY-418")!;
+    expect(wi.customFields).toEqual({ team_area: "checkout", build: 42 });
+  });
+
+  it("patches merge per key; null deletes a key; empty map is dropped", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "T", state: "todo", assignee: "", customFields: { a: "1", b: "2" } },
+    ];
+    let item = makeItem(wis);
+    const r1 = updateWorkItem(item, deriveItem(item), "PAY-418", { customFields: { b: "3", c: "4" } }, PM, "PM");
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    item = withEvent(item, r1.event);
+    let wi = deriveItem(item).workItems.find((w) => w.id === "PAY-418")!;
+    expect(wi.customFields).toEqual({ a: "1", b: "3", c: "4" });
+
+    const r2 = updateWorkItem(item, deriveItem(item), "PAY-418",
+      { customFields: { a: null, b: null, c: null } as unknown as Record<string, string> }, PM, "PM");
+    expect(r2.ok).toBe(true);
+    if (!r2.ok) return;
+    item = withEvent(item, r2.event);
+    wi = deriveItem(item).workItems.find((w) => w.id === "PAY-418")!;
+    expect(wi.customFields).toBeUndefined();
+  });
+
+  it("a no-op custom-field patch is rejected as no change", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "T", state: "todo", assignee: "", customFields: { a: "1" } },
+    ];
+    const item = makeItem(wis);
+    const r = updateWorkItem(item, deriveItem(item), "PAY-418", { customFields: { a: "1" } }, PM, "PM");
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects invalid keys and oversized values", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    expect(updateWorkItem(item, snap, "PAY-418", { customFields: { "": "x" } }, PM, "PM").ok).toBe(false);
+    expect(updateWorkItem(item, snap, "PAY-418", { customFields: { ["k".repeat(65)]: "x" } }, PM, "PM").ok).toBe(false);
+    expect(updateWorkItem(item, snap, "PAY-418", { customFields: { a: "v".repeat(2001) } }, PM, "PM").ok).toBe(false);
+  });
+});

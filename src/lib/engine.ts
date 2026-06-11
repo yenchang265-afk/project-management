@@ -34,8 +34,11 @@ export interface WiLink { type: WiLinkType; target: string; }
 export type ItemLinkKind = "blocks" | "relates" | "duplicates";
 export interface ItemLink { to: string; linkKind: ItemLinkKind; }
 /** Wire/event form of a work-item patch: null means "clear this field".
- *  (undefined doesn't survive JSON — DB payloads and HTTP both drop it.) */
-export type WiPatchWire = { [K in keyof WorkItem]?: WorkItem[K] | null };
+ *  (undefined doesn't survive JSON — DB payloads and HTTP both drop it.)
+ *  customFields is a per-key DELTA: value null deletes that key. */
+export type WiPatchWire =
+  { [K in keyof Omit<WorkItem, "customFields">]?: Omit<WorkItem, "customFields">[K] | null }
+  & { customFields?: Record<string, string | number | null> };
 export type EventType =
   | "CREATE" | "TRANSITION" | "CONDITION_SATISFY" | "CONDITION_WAIVE"
   | "CONDITION_RESET" | "SHIFT_LEFT_SET" | "GATE_SIGNOFF" | "GATE_SIGNOFF_CLEAR"
@@ -147,6 +150,7 @@ export interface WorkItem {
   remainingEstimate?: number; // hours >= 0; auto-decremented by worklogs (floor 0)
   timeSpent?: number;         // DERIVED from WI_WORKLOG events — total hours logged
   worklogs?: WiWorklog[];     // DERIVED from WI_WORKLOG events; omitted when none
+  customFields?: Record<string, string | number>; // free-form custom field values (defs/admin: later phase)
 }
 
 export interface Stakeholder {
@@ -439,12 +443,23 @@ export function deriveItem(item: Item): Snapshot {
             const merged: WorkItem = { ...w };
             const m = merged as unknown as Record<string, unknown>;
             for (const [k, v] of Object.entries(e.wi || {})) {
-              if (k === "id") continue;     // id is immutable
-              if (v === null) delete m[k];  // null = clear
+              if (k === "id") continue;            // id is immutable
+              if (k === "customFields") continue;  // per-key delta — merged below
+              if (v === null) delete m[k];         // null = clear
               else m[k] = v;
             }
             // never alias the immutable event payload's array into derived state
             if (e.wi && Array.isArray(e.wi.tags)) merged.tags = [...e.wi.tags];
+            // customFields delta: value null deletes the key; an emptied map is dropped
+            if (e.wi?.customFields) {
+              const next: Record<string, string | number> = { ...(w.customFields || {}) };
+              for (const [k, v] of Object.entries(e.wi.customFields)) {
+                if (v === null) delete next[k];
+                else next[k] = v;
+              }
+              if (Object.keys(next).length) merged.customFields = next;
+              else delete merged.customFields;
+            }
             return merged;
           });
         break;
@@ -868,6 +883,25 @@ export function updateWorkItem(
       if (err) return { ok: false, error: err };
     }
     wi.parentWiId = patch.parentWiId ?? null;
+  }
+  if (patch.customFields !== undefined) {
+    // per-key delta: value null deletes the key; only keys that actually change are emitted
+    const cf = patch.customFields as Record<string, string | number | null>;
+    const entries = Object.entries(cf);
+    if (entries.length > 20) return { ok: false, error: "At most 20 custom fields per change." };
+    for (const [k, v] of entries) {
+      if (!k.trim() || k.length > 64) return { ok: false, error: "Custom field keys must be 1–64 characters." };
+      if (v !== null && typeof v !== "string" && !(typeof v === "number" && Number.isFinite(v)))
+        return { ok: false, error: "Custom field values must be text or a number." };
+      if (typeof v === "string" && v.length > 2000) return { ok: false, error: "Custom field values are capped at 2000 characters." };
+    }
+    const curCf = cur.customFields || {};
+    const delta: Record<string, string | number | null> = {};
+    for (const [k, v] of entries) {
+      if (v === null) { if (k in curCf) delta[k] = null; }
+      else if (curCf[k] !== v) delta[k] = v;
+    }
+    if (Object.keys(delta).length) wi.customFields = delta;
   }
   if (Object.keys(wi).length === 0) return { ok: false, error: "No changes to save." };
   return { ok: true, event: ev(item.id, "WI_UPDATE", actor, role, { wiId, wi }) };

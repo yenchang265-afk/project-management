@@ -37,6 +37,10 @@ const WiPatchSchema = z.object({
   parentWiId: z.string().max(32).nullable().optional(),
   originalEstimate: z.number().min(0).max(100_000).nullable().optional(),
   remainingEstimate: z.number().min(0).max(100_000).nullable().optional(),
+  // per-key delta: null deletes that key (top-level toPatch() null-handling must NOT apply)
+  customFields: z.record(z.string().min(1).max(64), z.union([z.string().max(2000), z.number(), z.null()]))
+    .refine((m) => Object.keys(m).length <= 20, "At most 20 custom fields per change.")
+    .optional(),
 }).strict();
 
 export const CommandSchema = z.discriminatedUnion("kind", [
