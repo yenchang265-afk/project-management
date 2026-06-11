@@ -144,6 +144,7 @@ export interface WorkItem {
   comments?: WiComment[];     // DERIVED from WI_COMMENT events; omitted when none
   phase?: WiPhase;            // SDLC phase binding (drives board swimlanes + rollup context)
   sprint?: string;            // sprint/iteration name (free text, trimmed)
+  dueDate?: string;           // ISO YYYY-MM-DD — plotted on the calendar view
   links?: WiLink[];           // outgoing links; inverse direction is derived for display
   parentWiId?: string;        // subtask parent (one level — a parent can't itself be a subtask)
   originalEstimate?: number;  // hours >= 0
@@ -433,6 +434,7 @@ export function deriveItem(item: Item): Snapshot {
           if (p.phase != null) created.phase = p.phase;
           if (p.sprint != null) created.sprint = p.sprint;
           if (p.parentWiId != null) created.parentWiId = p.parentWiId;
+          if (p.dueDate != null) created.dueDate = p.dueDate;
           workItems = [...workItems, created];
         }
         break;
@@ -782,6 +784,15 @@ export function nextWorkItemId(item: Item, snap: Snapshot): string {
   return `${prefix}-${max + 1}`;
 }
 
+/** Strict ISO calendar date (YYYY-MM-DD) that survives a Date round-trip
+ *  (rejects impossible dates like 2026-02-30). */
+export function isIsoDate(v: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 /** Validate a subtask parent: must exist and must not itself be a subtask (one level). */
 function parentWiError(snap: Snapshot, parentWiId: string, selfId?: string): string | null {
   if (selfId !== undefined && parentWiId === selfId) return "A work item can’t be its own parent.";
@@ -795,7 +806,7 @@ function parentWiError(snap: Snapshot, parentWiId: string, selfId?: string): str
 
 export function createWorkItem(
   item: Item, snap: Snapshot,
-  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string; parentWiId?: string },
+  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string; parentWiId?: string; dueDate?: string },
   actor: string, role: Role
 ): WiResult {
   const title = (draft.title || "").trim();
@@ -809,6 +820,8 @@ export function createWorkItem(
     const err = parentWiError(snap, draft.parentWiId);
     if (err) return { ok: false, error: err };
   }
+  if (draft.dueDate !== undefined && !isIsoDate(draft.dueDate))
+    return { ok: false, error: "Due date must be a valid YYYY-MM-DD date." };
   const id = nextWorkItemId(item, snap);
   if (snap.workItems.some((w) => w.id === id))
     return { ok: false, error: `Work item ${id} already exists.` };
@@ -822,6 +835,7 @@ export function createWorkItem(
   const sprint = (draft.sprint || "").trim();
   if (sprint) wi.sprint = sprint;
   if (draft.parentWiId !== undefined) wi.parentWiId = draft.parentWiId;
+  if (draft.dueDate !== undefined) wi.dueDate = draft.dueDate;
   return { ok: true, event: ev(item.id, "WI_CREATE", actor, role, { wiId: id, wi }) };
 }
 
@@ -849,6 +863,8 @@ export function updateWorkItem(
     return { ok: false, error: "Remaining estimate must be a number of hours ≥ 0." };
   if (patch.tags !== undefined && !Array.isArray(patch.tags))
     return { ok: false, error: "Tags must be a list." };
+  if (patch.dueDate !== undefined && !isIsoDate(patch.dueDate))
+    return { ok: false, error: "Due date must be a valid YYYY-MM-DD date." };
   if (patch.phase !== undefined && !WI_PHASE_SET.has(patch.phase))
     return { ok: false, error: `Invalid phase "${patch.phase}".` };
   // Effective patch = only the fields that actually change (id is immutable).
@@ -869,6 +885,7 @@ export function updateWorkItem(
   if ("originalEstimate" in patch && patch.originalEstimate !== cur.originalEstimate) wi.originalEstimate = patch.originalEstimate ?? null;
   if ("remainingEstimate" in patch && patch.remainingEstimate !== cur.remainingEstimate) wi.remainingEstimate = patch.remainingEstimate ?? null;
   if ("phase" in patch && patch.phase !== cur.phase) wi.phase = patch.phase ?? null;
+  if ("dueDate" in patch && patch.dueDate !== cur.dueDate) wi.dueDate = patch.dueDate ?? null;
   if ("sprint" in patch) {
     const v = (patch.sprint ?? "").trim() || undefined;
     if (v !== cur.sprint) wi.sprint = v ?? null;

@@ -21,7 +21,7 @@ interface ListViewProps {
   onOpen: (itemId: string, wiId: string) => void;
 }
 
-const COLS = ["id", "title", "item", "type", "state", "assignee", "sprint", "points", "time"] as const;
+const COLS = ["id", "title", "item", "type", "state", "assignee", "sprint", "due", "points", "time"] as const;
 
 function csvEscape(v: string): string {
   return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
@@ -66,7 +66,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
       type: r.wi.type, state: r.wi.state, assignee: r.wi.assignee,
       sprint: r.wi.sprint, points: r.wi.storyPoints, priority: r.wi.priority,
       severity: r.wi.severity, phase: r.wi.phase, tags: r.wi.tags || [],
-      parent: r.wi.parentWiId, cf: r.wi.customFields || {},
+      parent: r.wi.parentWiId, due: r.wi.dueDate, cf: r.wi.customFields || {},
     }));
     return runCql(cqlParsed.query, cqlRows)
       .map((cr) => byKey.get(cr.item + ":" + cr.id)!)
@@ -74,12 +74,12 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
   })();
 
   function exportCsv() {
-    const head = ["id", "title", "item", "item_title", "type", "state", "assignee", "sprint", "story_points", "priority", "time_spent_h", "remaining_h", "tags"];
+    const head = ["id", "title", "item", "item_title", "type", "state", "assignee", "sprint", "due_date", "story_points", "priority", "time_spent_h", "remaining_h", "tags"];
     const lines = [head.join(",")];
     for (const r of rows) {
       lines.push([
         r.wi.id, r.wi.title, r.itemId, r.itemTitle, r.wi.type, r.wi.state, r.wi.assignee,
-        r.wi.sprint ?? "", r.wi.storyPoints != null ? String(r.wi.storyPoints) : "",
+        r.wi.sprint ?? "", r.wi.dueDate ?? "", r.wi.storyPoints != null ? String(r.wi.storyPoints) : "",
         r.wi.priority != null ? String(r.wi.priority) : "",
         r.wi.timeSpent != null ? String(r.wi.timeSpent) : "",
         r.wi.remainingEstimate != null ? String(r.wi.remainingEstimate) : "",
@@ -120,7 +120,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
         </div>
         <div style={{ paddingBottom: 8 }}>
           <input value={cql} aria-label="CQL query" className="mono" style={{ width: "100%" }}
-            placeholder='CQL: state = todo AND points > 2 ORDER BY points DESC  ·  fields: id title item type state assignee sprint points priority severity phase tag parent cf.<key>'
+            placeholder='CQL: state = todo AND points > 2 ORDER BY points DESC  ·  fields: id title item type state assignee sprint points priority severity phase tag parent due cf.<key>'
             onChange={(e) => setCql(e.target.value)} />
           {cqlParsed && !cqlParsed.ok &&
             <div className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11, paddingTop: 4 }}>⚠ {cqlParsed.error}</div>}
@@ -163,6 +163,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
                     </td>
                     <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{r.wi.assignee || <span style={{ color: "var(--text-3)" }}>—</span>}</td>
                     <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{r.wi.sprint ?? ""}</td>
+                    <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{r.wi.dueDate ?? ""}</td>
                     <td className="mono" style={{ padding: "4px 8px", textAlign: "right" }}>{r.wi.storyPoints ?? ""}</td>
                     <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap", color: "var(--text-3)" }}>
                       {r.wi.timeSpent != null ? `${r.wi.timeSpent}h` : ""}{r.wi.remainingEstimate != null ? ` / ${r.wi.remainingEstimate}h left` : ""}

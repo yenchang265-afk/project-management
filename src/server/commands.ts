@@ -35,6 +35,7 @@ const WiPatchSchema = z.object({
   phase: z.enum(wiPhases).nullable().optional(),
   sprint: z.string().max(64).nullable().optional(),
   parentWiId: z.string().max(32).nullable().optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Due date must be YYYY-MM-DD.").nullable().optional(),
   originalEstimate: z.number().min(0).max(100_000).nullable().optional(),
   remainingEstimate: z.number().min(0).max(100_000).nullable().optional(),
   // per-key delta: null deletes that key (top-level toPatch() null-handling must NOT apply)
@@ -56,6 +57,7 @@ export const CommandSchema = z.discriminatedUnion("kind", [
       type: z.enum(wiTypes), title: z.string().max(500), assignee: z.string().max(128),
       state: z.enum(wiStates).optional(), phase: z.enum(wiPhases).optional(), sprint: z.string().max(64).optional(),
       parentWiId: z.string().max(32).optional(),
+      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Due date must be YYYY-MM-DD.").optional(),
     }).strict(),
   }).strict(),
   z.object({ kind: z.literal("wiUpdate"), wiId: z.string().max(32), patch: WiPatchSchema }).strict(),

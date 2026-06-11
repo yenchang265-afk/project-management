@@ -221,6 +221,11 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 onChange={(e) => setSprintBuf(e.target.value)} onBlur={commitSprint}
                 onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
             </label>
+            <label className="wi-field"><span>Due date</span>
+              {/* native date input emits "" or a valid YYYY-MM-DD — matches the engine's isIsoDate */}
+              <input type="date" value={w.dueDate ?? ""}
+                onChange={(e) => onUpdate(wiId, { dueDate: e.target.value || undefined })} />
+            </label>
             <label className="wi-field"><span>Parent</span>
               {/* one level: only non-subtask WIs are eligible; a WI with subtasks can't become one */}
               <select value={w.parentWiId ?? ""} disabled={subtasks.length > 0}

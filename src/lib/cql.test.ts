@@ -112,3 +112,15 @@ describe("runCql — filtering and ORDER BY", () => {
     expect(runCql(p2.query, rows).map((r) => r.id)).toEqual(["A-2", "A-3", "A-1"]);
   });
 });
+
+describe("due field (ISO dates compare lexicographically)", () => {
+  it("supports equality and range comparisons on due", () => {
+    expect(matches("due = 2026-07-01", row({ due: "2026-07-01" }))).toBe(true);
+    expect(matches('due < "2026-08-01"', row({ due: "2026-07-01" }))).toBe(true);
+    expect(matches("due > 2026-08-01", row({ due: "2026-07-01" }))).toBe(false);
+  });
+  it("due = EMPTY matches rows without a due date", () => {
+    expect(matches("due = EMPTY", row({ due: undefined }))).toBe(true);
+    expect(matches("due = EMPTY", row({ due: "2026-07-01" }))).toBe(false);
+  });
+});

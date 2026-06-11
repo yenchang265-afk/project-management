@@ -27,12 +27,13 @@ export interface CqlRow {
   phase?: string;
   tags: string[];
   parent?: string;
+  due?: string; // ISO YYYY-MM-DD — range ops compare lexicographically
   cf: Record<string, string | number>;
 }
 
 const FIELDS = new Set([
   "id", "title", "item", "type", "state", "assignee", "sprint",
-  "points", "priority", "severity", "phase", "tag", "parent",
+  "points", "priority", "severity", "phase", "tag", "parent", "due",
 ]);
 
 type Op = "=" | "!=" | "~" | "!~" | ">" | ">=" | "<" | "<=";
@@ -234,6 +235,7 @@ function fieldValue(row: CqlRow, field: string): string | number | string[] | un
     case "phase": return row.phase;
     case "tag": return row.tags;
     case "parent": return row.parent;
+    case "due": return row.due;
     default: return undefined;
   }
 }
@@ -270,13 +272,21 @@ function compare(actual: string | number | string[] | undefined, op: Op, expecte
     }
     case "!~": return !compare(actual, "~", expected);
     case ">": case ">=": case "<": case "<=": {
-      if (expected.kind !== "num" || isUnset(actual) || Array.isArray(actual)) return false;
-      const a = typeof actual === "number" ? actual : Number(actual);
-      if (!Number.isFinite(a)) return false;
-      if (op === ">") return a > expected.v;
-      if (op === ">=") return a >= expected.v;
-      if (op === "<") return a < expected.v;
-      return a <= expected.v;
+      if (expected.kind === "empty" || isUnset(actual) || Array.isArray(actual)) return false;
+      if (expected.kind === "num") {
+        const a = typeof actual === "number" ? actual : Number(actual);
+        if (!Number.isFinite(a)) return false;
+        if (op === ">") return a > expected.v;
+        if (op === ">=") return a >= expected.v;
+        if (op === "<") return a < expected.v;
+        return a <= expected.v;
+      }
+      // string values (e.g. ISO dates): case-insensitive lexicographic compare
+      const a = String(actual).toLowerCase(), e = expected.v.toLowerCase();
+      if (op === ">") return a > e;
+      if (op === ">=") return a >= e;
+      if (op === "<") return a < e;
+      return a <= e;
     }
   }
 }
