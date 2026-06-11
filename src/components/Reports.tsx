@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { WI_STATES_ALL, type Item, type WiState } from "@/lib/engine";
-import { burndown, cfd, velocity } from "@/lib/reports";
+import { burndown, burnup, cfd, velocity, wiCycleTimes } from "@/lib/reports";
 import { areaPath, linePath, niceTicks, spanTicks, stackSeries, stepPath } from "@/lib/charts";
 import { fmtDate } from "@/lib/format";
 import { WI_STATES } from "./badges";
@@ -182,6 +182,109 @@ export function CfdCard({ items }: { items: Item[] }) {
               </div>
             </>}
       </div>
+    </div>
+  );
+}
+
+/* ---------------- 4. burnup ---------------- */
+
+export function BurnupCard({ items, sprint }: { items: Item[]; sprint: string | null }) {
+  const series = useMemo(() => (sprint ? burnup(items, sprint) : []), [items, sprint]);
+
+  const body = (() => {
+    if (!sprint) return <div className="wi-empty">No sprint selected.</div>;
+    if (series.length < 2) return <div className="wi-empty">Not enough history to chart {sprint} yet.</div>;
+    const min = series[0].ts, max = series[series.length - 1].ts;
+    const yTicks = niceTicks(Math.max(...series.map((p) => p.total)));
+    const yTop = yTicks[yTicks.length - 1];
+    const sx = (ts: number) => PL + ((ts - min) / (max - min)) * (W - PL - PR);
+    const sy = (v: number) => H - PB - (v / yTop) * (H - PT - PB);
+    const last = series[series.length - 1];
+    return (
+      <>
+        <Frame>
+          <YAxis ticks={yTicks} sy={sy} />
+          <XAxis min={min} max={max} sx={sx} />
+          <path d={stepPath(series.map((p) => ({ x: sx(p.ts), y: sy(p.total) })))}
+            fill="none" stroke="var(--text-3)" strokeWidth={1} strokeDasharray="3 3" />
+          <path d={stepPath(series.map((p) => ({ x: sx(p.ts), y: sy(p.done) })))}
+            fill="none" stroke="var(--ok)" strokeWidth={1.6} />
+        </Frame>
+        <div className="rep-legend mono">
+          <span><span className="rep-leg-dot" style={{ background: "var(--ok)" }} />done</span>
+          <span><span className="rep-leg-dot rep-leg-dash" />scope</span>
+          <span className="spacer"></span>
+          <span>{last.done}/{last.total} pts done</span>
+        </div>
+      </>
+    );
+  })();
+
+  return (
+    <div className="card">
+      <div className="card-h"><h3>Burnup</h3>
+        <span className="mono rep-sub">{sprint ?? "—"}</span></div>
+      <div className="card-b">{body}</div>
+    </div>
+  );
+}
+
+/* ---------------- 5. control chart (cycle time) ---------------- */
+
+const DAY_MS = 24 * 3600e3;
+
+export function ControlChartCard({ items }: { items: Item[] }) {
+  const done = useMemo(
+    () => wiCycleTimes(items).filter((c) => c.cycleMs != null && c.doneTs != null)
+      .sort((a, b) => a.doneTs! - b.doneTs!),
+    [items],
+  );
+
+  const body = (() => {
+    if (done.length < 2) return <div className="wi-empty">Fewer than two finished work items — no cycle-time trend yet.</div>;
+    const min = done[0].doneTs!, max = done[done.length - 1].doneTs!;
+    const days = (ms: number) => ms / DAY_MS;
+    const yTicks = niceTicks(Math.max(...done.map((c) => days(c.cycleMs!))));
+    const yTop = yTicks[yTicks.length - 1] || 1;
+    const sx = (ts: number) => PL + ((ts - min) / (max - min || 1)) * (W - PL - PR);
+    const sy = (v: number) => H - PB - (v / yTop) * (H - PT - PB);
+    const mean = done.reduce((s, c) => s + days(c.cycleMs!), 0) / done.length;
+    // rolling mean over the last 5 completions — the "trend" line of a Jira control chart
+    const rolling = done.map((c, i) => {
+      const win = done.slice(Math.max(0, i - 4), i + 1);
+      return { ts: c.doneTs!, v: win.reduce((s, x) => s + days(x.cycleMs!), 0) / win.length };
+    });
+    return (
+      <>
+        <Frame>
+          <YAxis ticks={yTicks} sy={sy} />
+          <XAxis min={min} max={max} sx={sx} />
+          <line className="rep-grid" x1={PL} x2={W - PR} y1={sy(mean)} y2={sy(mean)}
+            stroke="var(--warn)" strokeDasharray="4 3" />
+          <path d={linePath(rolling.map((p) => ({ x: sx(p.ts), y: sy(p.v) })))}
+            fill="none" stroke="var(--accent)" strokeWidth={1.4} />
+          {done.map((c) => (
+            <circle key={c.wiId} cx={sx(c.doneTs!)} cy={sy(days(c.cycleMs!))} r={2.4}
+              fill="var(--ok)" fillOpacity={0.8}>
+              <title>{c.wiId} · {days(c.cycleMs!).toFixed(1)}d</title>
+            </circle>
+          ))}
+        </Frame>
+        <div className="rep-legend mono">
+          <span><span className="rep-leg-dot" style={{ background: "var(--ok)" }} />cycle time</span>
+          <span><span className="rep-leg-dot" style={{ background: "var(--accent)" }} />rolling avg</span>
+          <span className="spacer"></span>
+          <span>mean {mean.toFixed(1)}d · {done.length} done</span>
+        </div>
+      </>
+    );
+  })();
+
+  return (
+    <div className="card">
+      <div className="card-h"><h3>Control chart</h3>
+        <span className="mono rep-sub">cycle time per finished work item</span></div>
+      <div className="card-b">{body}</div>
     </div>
   );
 }

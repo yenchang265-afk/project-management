@@ -358,3 +358,38 @@ describe("wiCycleTimes", () => {
     ]);
   });
 });
+
+/* =================== burnup =================== */
+import { burnup } from "./reports";
+
+describe("burnup", () => {
+  it("returns [] with no items", () => {
+    expect(burnup([], "S1")).toEqual([]);
+  });
+
+  it("mirrors burndown: done = total - remaining at every sample", () => {
+    const item = makeItem("A", [
+      create("A", T0, "A-100", { type: "story", title: "a", state: "todo", assignee: "", storyPoints: 3, sprint: "S1" }),
+      create("A", T0 + H, "A-101", { type: "story", title: "b", state: "todo", assignee: "", storyPoints: 2, sprint: "S1" }),
+      update("A", T0 + 2 * H, "A-100", { state: "done" }),
+    ]);
+    expect(burnup([item], "S1")).toEqual([
+      { ts: T0, done: 0, total: 3 },
+      { ts: T0 + H, done: 0, total: 5 },
+      { ts: T0 + 2 * H, done: 3, total: 5 },
+      { ts: T0 + 2 * H, done: 3, total: 5 },
+    ].filter((p, i, a) => i === 0 || p.ts !== a[i - 1].ts || p.done !== a[i - 1].done || p.total !== a[i - 1].total));
+  });
+
+  it("scope growth mid-sprint shows in total while done holds", () => {
+    const item = makeItem("A", [
+      create("A", T0, "A-100", { type: "story", title: "a", state: "todo", assignee: "", storyPoints: 2, sprint: "S1" }),
+      update("A", T0 + H, "A-100", { state: "done" }),
+      create("A", T0 + 2 * H, "A-101", { type: "story", title: "b", state: "todo", assignee: "", storyPoints: 4, sprint: "S1" }),
+    ]);
+    const series = burnup([item], "S1");
+    const last = series[series.length - 1];
+    expect(last.done).toBe(2);
+    expect(last.total).toBe(6);
+  });
+});
