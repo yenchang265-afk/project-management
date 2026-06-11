@@ -5,7 +5,7 @@ import {
   deriveItem, legalWiMoves,
   type Item, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
-import { parseCql, runCql, type CqlRow } from "@/lib/cql";
+import { parseCql, runCql, wiToCqlRow, type CqlRow } from "@/lib/cql";
 import { TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 /* Flat, spreadsheet-style list of every work item across the visible items
@@ -61,13 +61,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
   const rows = (() => {
     if (!cqlParsed?.ok) return basic; // no query, or a parse error (shown inline) — fall back to the basic filters
     const byKey = new Map(basic.map((r) => [r.itemId + ":" + r.wi.id, r]));
-    const cqlRows: CqlRow[] = basic.map((r) => ({
-      id: r.wi.id, title: r.wi.title, item: r.itemId,
-      type: r.wi.type, state: r.wi.state, assignee: r.wi.assignee,
-      sprint: r.wi.sprint, points: r.wi.storyPoints, priority: r.wi.priority,
-      severity: r.wi.severity, phase: r.wi.phase, tags: r.wi.tags || [],
-      parent: r.wi.parentWiId, due: r.wi.dueDate, cf: r.wi.customFields || {},
-    }));
+    const cqlRows: CqlRow[] = basic.map((r) => wiToCqlRow(r.itemId, r.wi));
     return runCql(cqlParsed.query, cqlRows)
       .map((cr) => byKey.get(cr.item + ":" + cr.id)!)
       .filter(Boolean);

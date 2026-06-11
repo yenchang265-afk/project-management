@@ -12,6 +12,8 @@
      value   := bareword | "quoted string" | number | EMPTY
    ========================================================================= */
 
+import { deriveItem, type Item, type WorkItem } from "./engine";
+
 /** Flat row shape the queries run against (one row per work item). */
 export interface CqlRow {
   id: string;
@@ -29,6 +31,22 @@ export interface CqlRow {
   parent?: string;
   due?: string; // ISO YYYY-MM-DD — range ops compare lexicographically
   cf: Record<string, string | number>;
+}
+
+/** Canonical WorkItem → CqlRow projection (shared by the list view and /api/search). */
+export function wiToCqlRow(itemId: string, w: WorkItem): CqlRow {
+  return {
+    id: w.id, title: w.title, item: itemId,
+    type: w.type, state: w.state, assignee: w.assignee,
+    sprint: w.sprint, points: w.storyPoints, priority: w.priority,
+    severity: w.severity, phase: w.phase, tags: w.tags || [],
+    parent: w.parentWiId, due: w.dueDate, cf: w.customFields || {},
+  };
+}
+
+/** One row per DERIVED work item across the given items. */
+export function itemsToCqlRows(items: Item[]): CqlRow[] {
+  return items.flatMap((it) => deriveItem(it).workItems.map((w) => wiToCqlRow(it.id, w)));
 }
 
 const FIELDS = new Set([
