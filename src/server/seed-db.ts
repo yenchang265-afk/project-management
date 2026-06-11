@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 // relative imports (not @/) so tsx-run scripts resolve without tsconfig-paths support
 import { buildSeed } from "../lib/seed";
+import { sprintIdFor } from "../lib/sprints";
 import type { Item, PdlcEvent } from "../lib/engine";
 
 export const SEED_USERS = [
@@ -47,6 +48,13 @@ export const SEED_TEAMS = [
   { id: "team-platform", name: "Platform Foundation", org: "org-platform", projects: ["prj-commerce", "prj-identity"], members: ["sam@cadence.dev", "priya@cadence.dev"] },
 ];
 
+// First-class sprint registry for the demo team. "Sprint 24" matches the
+// free-text sprint strings the work-item fixture uses; "Sprint 25" is upcoming.
+export const SEED_SPRINTS = [
+  { team: "team-checkout", name: "Sprint 24", start: "2026-06-01", end: "2026-06-14", state: "active" as const },
+  { team: "team-checkout", name: "Sprint 25", start: "2026-06-15", end: "2026-06-28", state: "future" as const },
+];
+
 export function projectForItem(itemId: string): string | null {
   const prefix = itemId.split("-")[0];
   return SEED_PROJECTS.find((p) => p.prefixes.includes(prefix))?.id ?? null;
@@ -61,6 +69,7 @@ export function eventToRow(e: PdlcEvent) {
 export async function seedItems(conn: Connection): Promise<number> {
   const { ITEMS } = buildSeed(Date.now());
 
+  await conn.query("DELETE FROM notifications"); // runtime fan-out — never part of the seed
   await conn.query("DELETE FROM events");
   await conn.query("DELETE FROM items WHERE parent IS NOT NULL");
   await conn.query("DELETE FROM items");
@@ -143,6 +152,13 @@ export async function seedStructure(conn: Connection): Promise<void> {
         "INSERT INTO team_members (team_id, user_id) SELECT ?, id FROM users WHERE email = ?",
         [t.id, email]
       );
+  }
+  for (const s of SEED_SPRINTS) {       // teams seeded above (sprints.team_id FK)
+    await conn.query(
+      `INSERT INTO sprints (id, team_id, name, start_date, end_date, state) VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE start_date = VALUES(start_date), end_date = VALUES(end_date), state = VALUES(state)`,
+      [sprintIdFor(s.team, s.name), s.team, s.name, s.start, s.end, s.state]
+    );
   }
   for (const a of SEED_ANNOUNCEMENTS) {
     await conn.query(

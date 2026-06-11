@@ -110,3 +110,149 @@ describe("runCommand — engine + role guards", () => {
     expect(runCommand(item, { kind: "flag", flag: "on_hold", value: true, reason: null }, PM, "PM").ok).toBe(true);
   });
 });
+
+describe("item_comment — comments on spine items", () => {
+  it("schema accepts 1..2000 character text", () => {
+    expect(CommandSchema.safeParse({ kind: "item_comment", text: "hi" }).success).toBe(true);
+    expect(CommandSchema.safeParse({ kind: "item_comment", text: "x".repeat(2000) }).success).toBe(true);
+  });
+
+  it("schema rejects empty, too-long, missing text and extra keys", () => {
+    expect(CommandSchema.safeParse({ kind: "item_comment", text: "" }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "item_comment", text: "x".repeat(2001) }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "item_comment" }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "item_comment", text: "hi", wiId: "PAY-418" }).success).toBe(false);
+  });
+
+  it("runCommand emits an ITEM_COMMENT event carrying session actor/role and trimmed text", () => {
+    const item = makeItem();
+    const r = runCommand(item, { kind: "item_comment", text: "  ship it  " }, DEV, "Dev");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.type).toBe("ITEM_COMMENT");
+    expect(r.event.item).toBe("PAY-412");
+    expect(r.event.text).toBe("ship it");
+    expect(r.event.actor).toBe(DEV);
+    expect(r.event.role).toBe("Dev");
+    const after = deriveItem({ ...item, events: [...item.events, r.event] });
+    expect(after.comments.map((c) => ({ author: c.author, role: c.role, text: c.text })))
+      .toEqual([{ author: DEV, role: "Dev", text: "ship it" }]);
+  });
+
+  it("runCommand rejects whitespace-only text with {ok:false}", () => {
+    const r = runCommand(makeItem(), { kind: "item_comment", text: "   " }, PM, "PM");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/empty/i);
+  });
+
+  it("both roles may comment", () => {
+    const item = makeItem();
+    expect(runCommand(item, { kind: "item_comment", text: "pm note" }, PM, "PM").ok).toBe(true);
+    expect(runCommand(item, { kind: "item_comment", text: "dev note" }, DEV, "Dev").ok).toBe(true);
+  });
+});
+
+describe("watch command", () => {
+  it("schema accepts {kind:'watch', on:boolean} and rejects extras / bad shapes", () => {
+    expect(CommandSchema.safeParse({ kind: "watch", on: true }).success).toBe(true);
+    expect(CommandSchema.safeParse({ kind: "watch", on: false }).success).toBe(true);
+    expect(CommandSchema.safeParse({ kind: "watch" }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "watch", on: "yes" }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "watch", on: true, extra: 1 }).success).toBe(false);
+  });
+
+  it("runCommand emits WATCH_SET carrying the session actor and the on flag", () => {
+    const item = makeItem();
+    const r = runCommand(item, { kind: "watch", on: true }, DEV, "Dev");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.type).toBe("WATCH_SET");
+    expect(r.event.item).toBe("PAY-412");
+    expect(r.event.on).toBe(true);
+    expect(r.event.actor).toBe(DEV);
+    const after = deriveItem({ ...item, events: [...item.events, r.event] });
+    expect(after.watchers.has(DEV)).toBe(true);
+  });
+
+  it("both roles may watch and unwatch (round-trips through the fold)", () => {
+    const item = makeItem();
+    const on = runCommand(item, { kind: "watch", on: true }, PM, "PM");
+    expect(on.ok).toBe(true);
+    if (!on.ok) return;
+    const watched = { ...item, events: [...item.events, on.event] };
+    const off = runCommand(watched, { kind: "watch", on: false }, PM, "PM");
+    expect(off.ok).toBe(true);
+    if (!off.ok) return;
+    const after = deriveItem({ ...watched, events: [...watched.events, off.event] });
+    expect(after.watchers.has(PM)).toBe(false);
+  });
+});
+
+describe("item link commands", () => {
+  it("schema accepts item_link / item_unlink and rejects bad shapes", () => {
+    expect(CommandSchema.safeParse({ kind: "item_link", to: "PAY-413", linkKind: "blocks" }).success).toBe(true);
+    expect(CommandSchema.safeParse({ kind: "item_link", to: "PAY-413", linkKind: "relates" }).success).toBe(true);
+    expect(CommandSchema.safeParse({ kind: "item_unlink", to: "PAY-413", linkKind: "duplicates" }).success).toBe(true);
+    expect(CommandSchema.safeParse({ kind: "item_link", to: "PAY-413", linkKind: "nope" }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "item_link", to: "", linkKind: "blocks" }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "item_link", linkKind: "blocks" }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "item_link", to: "PAY-413", linkKind: "blocks", extra: 1 }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "item_unlink", to: "PAY-413" }).success).toBe(false);
+  });
+
+  it("item_link emits ITEM_LINK and folds into snap.links", () => {
+    const item = makeItem();
+    const r = runCommand(item, { kind: "item_link", to: "PAY-413", linkKind: "blocks" }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.type).toBe("ITEM_LINK");
+    expect(r.event.item).toBe("PAY-412");
+    expect(r.event.to).toBe("PAY-413");
+    expect(r.event.linkKind).toBe("blocks");
+    const after = deriveItem({ ...item, events: [...item.events, r.event] });
+    expect(after.links).toEqual([{ to: "PAY-413", linkKind: "blocks" }]);
+  });
+
+  it("rejects a self-link with {ok:false}", () => {
+    const r = runCommand(makeItem(), { kind: "item_link", to: "PAY-412", linkKind: "relates" }, PM, "PM");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/itself/i);
+  });
+
+  it("rejects a duplicate {to, linkKind} link", () => {
+    const item = makeItem();
+    const first = runCommand(item, { kind: "item_link", to: "PAY-413", linkKind: "blocks" }, PM, "PM");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const linked = { ...item, events: [...item.events, first.event] };
+    expect(runCommand(linked, { kind: "item_link", to: "PAY-413", linkKind: "blocks" }, PM, "PM").ok).toBe(false);
+    // same target, different kind is fine
+    expect(runCommand(linked, { kind: "item_link", to: "PAY-413", linkKind: "relates" }, PM, "PM").ok).toBe(true);
+  });
+
+  it("item_unlink removes the link (round-trips through the fold)", () => {
+    const item = makeItem();
+    const link = runCommand(item, { kind: "item_link", to: "PAY-413", linkKind: "blocks" }, DEV, "Dev");
+    expect(link.ok).toBe(true);
+    if (!link.ok) return;
+    const linked = { ...item, events: [...item.events, link.event] };
+    const unlink = runCommand(linked, { kind: "item_unlink", to: "PAY-413", linkKind: "blocks" }, DEV, "Dev");
+    expect(unlink.ok).toBe(true);
+    if (!unlink.ok) return;
+    expect(unlink.event.type).toBe("ITEM_UNLINK");
+    const after = deriveItem({ ...linked, events: [...linked.events, unlink.event] });
+    expect(after.links).toEqual([]);
+  });
+
+  it("item_unlink of a non-existent link is rejected", () => {
+    const r = runCommand(makeItem(), { kind: "item_unlink", to: "PAY-413", linkKind: "blocks" }, PM, "PM");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/no .*link/i);
+  });
+
+  it("both roles may link and unlink", () => {
+    const item = makeItem();
+    expect(runCommand(item, { kind: "item_link", to: "PAY-413", linkKind: "relates" }, PM, "PM").ok).toBe(true);
+    expect(runCommand(item, { kind: "item_link", to: "PAY-413", linkKind: "relates" }, DEV, "Dev").ok).toBe(true);
+  });
+});

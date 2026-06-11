@@ -13,11 +13,13 @@ import {
   type SubtrackState, type TrackKey, type TransitionDef, type WiLinkType, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import {
-  assignItemProject, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
-  fetchAnnouncements, fetchItems, fetchMe, fetchStructure, fetchUsers,
-  logout, postCommand, postSpawn, renameOrg, setTeamOrg, teamMemberOp, teamProjectOp,
-  type AnnouncementInfo, type AnnouncementScope, type ApiUser, type Structure, type TeamMemberInfo,
+  assignItemProject, bulkCommands, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
+  fetchAnnouncements, fetchItems, fetchMe, fetchNotifications, fetchStructure, fetchUsers,
+  logout, markNotificationsRead, postCommand, postSpawn, renameOrg, searchAll, setTeamOrg, teamMemberOp, teamProjectOp,
+  type AnnouncementInfo, type AnnouncementScope, type ApiUser, type NotificationInfo, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
+import type { SearchHit } from "@/lib/search";
+import { timeAgo } from "@/lib/format";
 import { Avatar, StateBadge, TypeBox, WI_TYPES } from "./badges";
 import { Actions } from "./Actions";
 import { Analytics } from "./Analytics";
@@ -26,6 +28,7 @@ import { DashboardView } from "./DashboardView";
 import { OrgView } from "./OrgView";
 import { GateInspector } from "./GateInspector";
 import { History } from "./History";
+import { ItemComments } from "./ItemComments";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -77,6 +80,8 @@ export default function App() {
   const [adminModal, setAdminModal] = useState<"project" | "team" | "org" | null>(null);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<AnnouncementInfo[]>([]);
+  const [notifications, setNotifications] = useState<NotificationInfo[]>([]);
+  const [bellOpen, setBellOpen] = useState(false);
   const [annModal, setAnnModal] = useState(false);
   const [annScope, setAnnScope] = useState<AnnouncementScope>("company");
   const [annTarget, setAnnTarget] = useState("");
@@ -97,6 +102,9 @@ export default function App() {
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [query, setQuery] = useState("");
+  // "Search everything" — server-side hits complementing the local Navigator filter.
+  // null = dropdown closed (query too short / cleared); [] = searched, no matches.
+  const [searchHits, setSearchHits] = useState<SearchHit[] | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   // versionsRef mirrors `versions` so queued commands read the LATEST version, not a
   // stale render closure; queues serialize commands per item (rapid edits would
@@ -135,6 +143,31 @@ export default function App() {
         setSelId(itemsRes.data.items[0].id);
     })();
   }, []);
+
+  // notifications: fetch on login, then poll every 30s (cleaned up on unmount)
+  useEffect(() => {
+    if (!me) return;
+    let live = true;
+    const load = async () => {
+      const r = await fetchNotifications();
+      if (live && r.ok) setNotifications(r.data.notifications);
+    };
+    void load();
+    const t = setInterval(() => void load(), 30_000);
+    return () => { live = false; clearInterval(t); };
+  }, [me]);
+
+  // server search: debounce 300ms, only for queries of 2+ chars; stale responses are dropped
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setSearchHits(null); return; }
+    let live = true;
+    const t = setTimeout(async () => {
+      const r = await searchAll(q);
+      if (live && r.ok) setSearchHits(r.data.results);
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [query]);
 
   function pushToast(o: Omit<Toast, "id">) {
     const id = Date.now() + "_" + Math.random().toString(36).slice(2, 5);
@@ -268,6 +301,9 @@ export default function App() {
   function commentOnWorkItem(wiId: string, text: string) {
     void sendCmd(item.id, { kind: "wiComment", wiId, text });
   }
+  function commentOnItem(text: string) {
+    void sendCmd(item.id, { kind: "item_comment", text });
+  }
   function moveWorkItemOn(itemId: string, wiId: string, to: WiState) {
     void sendCmd(itemId, { kind: "wiMove", wiId, to });
   }
@@ -281,6 +317,24 @@ export default function App() {
   function rankWi(wiId: string, toIndex: number) {
     void sendCmd(item.id, { kind: "wiReorder", wiId, toIndex });
   }
+  /* ---- bulk edit: one wiUpdate per selected WI in a single request.
+     Ops apply sequentially server-side, so expectedVersion climbs per op;
+     after the response we refetch (the existing reload path) to reconcile. ---- */
+  async function bulkEditWis(wiIds: string[], patch: Record<string, unknown>) {
+    if (!wiIds.length) return;
+    const itemId = item.id;
+    const base = versionsRef.current[itemId] ?? item.events.length;
+    const r = await bulkCommands(wiIds.map((wiId, i) => ({
+      itemId, expectedVersion: base + i, command: { kind: "wiUpdate", wiId, patch },
+    })));
+    await refreshItems(); // reconcile regardless of per-op outcomes
+    if (!r.ok) { pushToast({ ok: false, message: r.error }); return; }
+    const okN = r.data.results.filter((x) => x.status === "ok").length;
+    if (okN === wiIds.length)
+      pushToast({ ok: true, message: `Updated ${okN} work item${okN === 1 ? "" : "s"}` });
+    else
+      pushToast({ ok: false, message: `Bulk edit: ${okN}/${wiIds.length} applied — view refreshed, try the rest again.` });
+  }
   function openFromBoard(itemId: string, wiId: string) {
     setSelId(itemId);
     setOpenWiId(wiId);
@@ -289,6 +343,13 @@ export default function App() {
     setSelId(id);
     setMode("projects");
     setView("detail");
+  }
+  // "Search everything" result → jump to the item (and open the WI drawer if the hit is a work item)
+  function openSearchHit(h: SearchHit) {
+    selectItem(h.itemId);
+    setOpenWiId(h.wiId ?? null);
+    setQuery("");          // clears the input + closes the dropdown
+    setSearchHits(null);
   }
   // selecting a team opens its TeamSpace inside the Organization workspace
   function selectTeam(teamId: string) {
@@ -414,6 +475,31 @@ export default function App() {
     }
   }
 
+  /* ---- notifications: bell dropdown + watch toggle ---- */
+  const unreadCount = notifications.filter((n) => !n.readAt).length;
+  const watching = snap.watchers.has(actor);
+  function markReadLocal(ids: string[] | "all") {
+    const now = new Date().toISOString();
+    setNotifications((ns) => ns.map((n) =>
+      !n.readAt && (ids === "all" || ids.includes(n.id)) ? { ...n, readAt: now } : n));
+  }
+  async function openNotification(n: NotificationInfo) {
+    setBellOpen(false);
+    if (n.itemId && byId[n.itemId]) selectItem(n.itemId);
+    if (!n.readAt) {
+      markReadLocal([n.id]); // optimistic — server is source of truth on next poll
+      await markNotificationsRead([n.id]);
+    }
+  }
+  async function markAllRead() {
+    markReadLocal("all");
+    await markNotificationsRead();
+  }
+  function toggleWatch() {
+    void sendCmd(item.id, { kind: "watch", on: !watching },
+      { ok: true, message: watching ? `Stopped watching ${item.id}` : `Watching ${item.id}`, detail: "you'll be notified of moves & comments" });
+  }
+
   async function doLogout() {
     await logout();
     window.location.href = "/login";
@@ -481,6 +567,31 @@ export default function App() {
               </div>
             </>}
           </div>}
+        <div className="bellwrap">
+          <button className="bell-btn" title="Notifications" aria-haspopup="menu" aria-expanded={bellOpen}
+            onClick={() => setBellOpen((o) => !o)}>
+            🔔{unreadCount > 0 && <span className="bell-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+          </button>
+          {bellOpen && <>
+            <div className="newmenu-scrim" onClick={() => setBellOpen(false)}></div>
+            <div className="bell-pop" role="menu">
+              <div className="bell-head">
+                <b>Notifications</b>
+                {unreadCount > 0 && <button className="bell-markall" onClick={markAllRead}>Mark all read</button>}
+              </div>
+              {notifications.length === 0 &&
+                <div className="bell-empty">No notifications yet — watch an item to get updates.</div>}
+              {notifications.map((n) => (
+                <button key={n.id} className="bell-row" data-unread={!n.readAt} role="menuitem"
+                  onClick={() => void openNotification(n)}>
+                  <span className="bell-dot" aria-hidden="true"></span>
+                  <span className="bell-msg">{n.message}</span>
+                  <span className="bell-ts mono">{timeAgo(new Date(n.createdAt).getTime())}</span>
+                </button>
+              ))}
+            </div>
+          </>}
+        </div>
         <div className="who">
           <Avatar name={actor} /> <span>{actor}</span>
           <span className="kpill" data-role={role}>{role === "PM" ? "Product" : "Engineering"}</span>
@@ -508,6 +619,22 @@ export default function App() {
                 placeholder={mode === "org" ? "Search all orgs…" : "Search items…"} />
               {query && <button className="ns-x" onClick={() => setQuery("")}>×</button>}
             </div>
+            {/* server-side "Search everything" — complements the local tree filter above */}
+            {searchHits !== null &&
+              <div className="search-pop" role="listbox" aria-label="Search everything">
+                <div className="search-pop-head">Search everything</div>
+                {searchHits.length === 0 &&
+                  <div className="search-pop-empty">No matches across your items.</div>}
+                {searchHits.map((h, i) => (
+                  <button key={h.itemId + ":" + (h.wiId ?? "") + ":" + i} className="search-hit" role="option"
+                    onClick={() => openSearchHit(h)}>
+                    <span className="sh-id mono">{h.wiId ?? h.itemId}</span>
+                    <span className="sh-title">{h.wiId ? h.wiTitle : h.title}</span>
+                    {h.wiId && <span className="sh-in">in {h.itemId}</span>}
+                    <span className="sh-field mono">{h.field === "wi_title" ? "title" : h.field.replace("wi_", "")}</span>
+                  </button>
+                ))}
+              </div>}
             {mode === "projects" && <div className="lanefilter">
               {LANE_FILTERS.map((f) => (
                 <button key={f.key} data-on={filter === f.key} onClick={() => setFilter(f.key)}>
@@ -588,6 +715,10 @@ export default function App() {
                 <button className="lineage" onClick={() => setSelId(child[0].id)}>⎇ {child.length} child {child.length > 1 ? "iterations" : "iteration"}</button></>}
               <div className="spacer"></div>
               <div className="flagbtns">
+                <button className="flagbtn watch" data-on={watching} onClick={toggleWatch}
+                  title={watching ? "Stop watching this item" : "Get notified about transitions and comments"}>
+                  ◉ {watching ? "Watching" : "Watch"}
+                </button>
                 {(["blocked", "on_hold"] as FlagKey[]).map((f) => (
                   <button key={f} className={"flagbtn " + f} data-on={!!snap.flags[f]} onClick={() => toggleFlag(f)}>
                     {f === "blocked" ? "⚑" : "⏸"} {f === "blocked" ? "Blocked" : "On hold"}
@@ -645,8 +776,10 @@ export default function App() {
               <div className="stack">
                 <Stakeholders item={item} snap={snap} />
                 <WorkItems key={item.id} item={item} snap={snap} role={role}
+                  teamIds={itemProject?.teamIds ?? []}
                   onCreate={addWorkItem} onUpdate={editWorkItem} onDelete={removeWorkItem} onOpen={setOpenWiId}
-                  onMove={moveWorkItem} onReorder={rankWi} />
+                  onMove={moveWorkItem} onReorder={rankWi} onBulkUpdate={(ids, patch) => void bulkEditWis(ids, patch)} />
+                <ItemComments snap={snap} onComment={commentOnItem} />
                 <History item={item} />
                 <Analytics item={item} />
               </div>

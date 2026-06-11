@@ -6,7 +6,7 @@ import {
   GATES, STATES, SUBTRACK_FLOW,
   applyTransition, commentWorkItem, createWorkItem, deleteWorkItem, deriveItem, ev,
   linkWorkItems, reorderWorkItem, transitionWorkItem, unlinkWorkItems, updateWorkItem,
-  WI_LINK_TYPES, WI_PHASES_ALL, WI_STATES_ALL, WI_TYPES_ALL,
+  ITEM_LINK_KINDS, ITEM_LINK_LABELS, WI_LINK_TYPES, WI_PHASES_ALL, WI_STATES_ALL, WI_TYPES_ALL,
   type ConditionDef, type GateKey, type Item, type PdlcEvent, type Rejection, type Role,
   type StateKey, type SubtrackState, type TrackKey, type WorkItem,
 } from "@/lib/engine";
@@ -17,6 +17,7 @@ const wiStates = WI_STATES_ALL as [typeof WI_STATES_ALL[number], ...typeof WI_ST
 const wiTypes = WI_TYPES_ALL as [typeof WI_TYPES_ALL[number], ...typeof WI_TYPES_ALL];
 const wiPhases = WI_PHASES_ALL as [typeof WI_PHASES_ALL[number], ...typeof WI_PHASES_ALL];
 const linkTypes = WI_LINK_TYPES as [typeof WI_LINK_TYPES[number], ...typeof WI_LINK_TYPES];
+const itemLinkKinds = ITEM_LINK_KINDS as [typeof ITEM_LINK_KINDS[number], ...typeof ITEM_LINK_KINDS];
 
 /* JSON can't carry undefined, so "clear this field" travels as null;
    toPatch() converts null → present-but-undefined, which the engine reads as a clear. */
@@ -56,6 +57,10 @@ export const CommandSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("wiLink"), wiId: z.string().max(32), type: z.enum(linkTypes), target: z.string().max(32) }).strict(),
   z.object({ kind: z.literal("wiUnlink"), wiId: z.string().max(32), type: z.enum(linkTypes), target: z.string().max(32) }).strict(),
   z.object({ kind: z.literal("wiReorder"), wiId: z.string().max(32), toIndex: z.number().int().min(0).max(10_000) }).strict(),
+  z.object({ kind: z.literal("item_comment"), text: z.string().min(1).max(2000) }).strict(),
+  z.object({ kind: z.literal("watch"), on: z.boolean() }).strict(),
+  z.object({ kind: z.literal("item_link"), to: z.string().min(1).max(32), linkKind: z.enum(itemLinkKinds) }).strict(),
+  z.object({ kind: z.literal("item_unlink"), to: z.string().min(1).max(32), linkKind: z.enum(itemLinkKinds) }).strict(),
 ]);
 
 export type Command = z.infer<typeof CommandSchema>;
@@ -64,6 +69,20 @@ export const CommandRequestSchema = z.object({
   command: CommandSchema,
   expectedVersion: z.number().int().min(0),
 }).strict();
+
+/* Bulk wire shape (POST /api/items/bulk): up to 50 single-route ops in one
+   request. Each op reuses the SAME CommandSchema — never a parallel copy. */
+export const BulkOpSchema = z.object({
+  itemId: z.string().min(1).max(32),
+  expectedVersion: z.number().int().min(0),
+  command: CommandSchema,
+}).strict();
+
+export const BulkRequestSchema = z.object({
+  ops: z.array(BulkOpSchema).min(1).max(50),
+}).strict();
+
+export type BulkOp = z.infer<typeof BulkOpSchema>;
 
 /* ---------- dispatch ---------- */
 export type CommandResult =
@@ -155,6 +174,27 @@ export function runCommand(item: Item, cmd: Command, actor: string, role: Role):
     case "wiReorder": {
       const r = reorderWorkItem(item, snap, cmd.wiId, cmd.toIndex, actor, role);
       return r.ok ? { ok: true, event: r.event } : fail(r.error);
+    }
+    case "item_comment": {
+      // both roles may comment; actor/role come from the session (never the body)
+      const body = cmd.text.trim();
+      if (!body) return fail("Comment can’t be empty.");
+      return { ok: true, event: ev(item.id, "ITEM_COMMENT", actor, role, { text: body }) };
+    }
+    case "watch":
+      // both roles may watch; the fold keys watchers by the SESSION actor's name
+      return { ok: true, event: ev(item.id, "WATCH_SET", actor, role, { on: cmd.on }) };
+    case "item_link": {
+      // informational v1 — both roles may link; never gates transitions
+      if (cmd.to === item.id) return fail("An item can’t link to itself.");
+      if (snap.links.some((l) => l.to === cmd.to && l.linkKind === cmd.linkKind))
+        return fail(`${item.id} already ${ITEM_LINK_LABELS[cmd.linkKind].out} ${cmd.to}.`);
+      return { ok: true, event: ev(item.id, "ITEM_LINK", actor, role, { to: cmd.to, linkKind: cmd.linkKind }) };
+    }
+    case "item_unlink": {
+      if (!snap.links.some((l) => l.to === cmd.to && l.linkKind === cmd.linkKind))
+        return fail(`No "${cmd.linkKind}" link from ${item.id} to ${cmd.to}.`);
+      return { ok: true, event: ev(item.id, "ITEM_UNLINK", actor, role, { to: cmd.to, linkKind: cmd.linkKind }) };
     }
   }
 }

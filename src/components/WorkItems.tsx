@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { legalWiMoves, wiBlockedBy, type Item, type Role, type Snapshot, type WiState, type WiType, type WorkItem } from "@/lib/engine";
+import { useEffect, useState } from "react";
+import { WI_PHASES_ALL, legalWiMoves, wiBlockedBy, type Item, type Role, type Snapshot, type WiState, type WiType, type WorkItem } from "@/lib/engine";
+import { fetchSprints } from "@/lib/api";
 import { Avatar, TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 const WI_TYPE_OPTS: WiType[] = ["story", "task", "bug"];
@@ -14,21 +15,55 @@ interface WorkItemsProps {
   item: Item;
   snap: Snapshot;
   role: Role;
+  teamIds: string[]; // teams owning the item's project — sprint registry sources
   onCreate: (draft: Draft) => void;
   onUpdate: (wiId: string, patch: Partial<WorkItem>) => void;
   onDelete: (wiId: string) => void;
   onOpen: (wiId: string) => void;
   onMove: (wiId: string, to: WiState) => void;
   onReorder: (wiId: string, toIndex: number) => void;
+  // bulk edit: one wiUpdate command per selected WI (wire patch — null clears)
+  onBulkUpdate: (wiIds: string[], patch: Record<string, unknown>) => void;
 }
 
 /* ---------------- WORK ITEMS — inline CRUD (story / task / bug) ---------------- */
-export function WorkItems({ item, snap, onCreate, onUpdate, onDelete, onOpen, onMove, onReorder }: WorkItemsProps) {
+export function WorkItems({ item, snap, teamIds, onCreate, onUpdate, onDelete, onOpen, onMove, onReorder, onBulkUpdate }: WorkItemsProps) {
   const wi = snap.workItems;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [adding, setAdding] = useState(false);
   const [newDraft, setNewDraft] = useState<Draft>(EMPTY_DRAFT);
+  // bulk select mode: checkboxes on cards + an action bar over the selection
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkSprint, setBulkSprint] = useState("");
+  const [sprintOpts, setSprintOpts] = useState<string[]>([]);
+  const teamKey = teamIds.join("|");
+
+  // registry dropdown: load the owning teams' sprints when select mode opens
+  useEffect(() => {
+    if (!selecting || !teamKey) return;
+    let live = true;
+    void Promise.all(teamKey.split("|").map((t) => fetchSprints(t))).then((rs) => {
+      if (!live) return;
+      const names = new Set<string>();
+      for (const r of rs) if (r.ok) for (const s of r.data.sprints) names.add(s.name);
+      setSprintOpts([...names]);
+    });
+    return () => { live = false; };
+  }, [selecting, teamKey]);
+
+  function toggleSelecting() {
+    setSelecting((s) => !s);
+    setSelected(new Set());
+    setBulkSprint("");
+  }
+  function toggleSel(id: string) {
+    setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+  function applyBulk(patch: Record<string, unknown>) {
+    if (selected.size) onBulkUpdate([...selected], patch);
+  }
 
   // assignee options: stakeholders ∪ existing assignees (unique, non-empty)
   const people = Array.from(new Set([
@@ -79,10 +114,38 @@ export function WorkItems({ item, snap, onCreate, onUpdate, onDelete, onOpen, on
     <div className="card">
       <div className="card-h">
         <h3>⊞ Work items</h3>
+        {wi.length > 0 &&
+          <button className="wi-act" data-on={selecting} title="Toggle multi-select for bulk edits"
+            style={selecting ? { color: "var(--accent)", borderColor: "var(--accent)" } : undefined}
+            onClick={toggleSelecting}>{selecting ? "✕ Done" : "▣ Select"}</button>}
         <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>
-          {wi.length ? `${doneN}/${wi.length} done` : "none yet"}</span>
+          {selecting ? `${selected.size} selected` : wi.length ? `${doneN}/${wi.length} done` : "none yet"}</span>
       </div>
       <div className="card-b">
+        {selecting &&
+          <div className="wi-addrow" style={{ marginBottom: 8, flexWrap: "wrap" }}>
+            <input className="wi-inp" list={`bulk-sprints-${item.id}`} placeholder="Sprint…"
+              value={bulkSprint} style={{ maxWidth: 120 }}
+              onChange={(e) => setBulkSprint(e.target.value)} />
+            <datalist id={`bulk-sprints-${item.id}`}>
+              {sprintOpts.map((s) => <option key={s} value={s} />)}
+            </datalist>
+            <button className="wi-act ok" title="Set sprint on selection (empty clears)"
+              disabled={!selected.size} onClick={() => applyBulk({ sprint: bulkSprint.trim() || null })}>
+              Set sprint</button>
+            <select className="wi-sel" title="Set phase on selection" value="" disabled={!selected.size}
+              onChange={(e) => { if (e.target.value) applyBulk({ phase: e.target.value === "__clear" ? null : e.target.value }); }}>
+              <option value="">Phase…</option>
+              {WI_PHASES_ALL.map((p) => <option key={p} value={p}>{p}</option>)}
+              <option value="__clear">— clear —</option>
+            </select>
+            <select className="wi-sel" title="Set assignee on selection" value="" disabled={!selected.size}
+              onChange={(e) => { if (e.target.value) applyBulk({ assignee: e.target.value === "__none" ? "" : e.target.value }); }}>
+              <option value="">Assignee…</option>
+              <option value="__none">Unassigned</option>
+              {people.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>}
         {wi.length === 0
           ? <div className="wi-empty">No work items linked to this feature yet.</div>
           : <>
@@ -103,10 +166,13 @@ export function WorkItems({ item, snap, onCreate, onUpdate, onDelete, onOpen, on
                   const blockers = wiBlockedBy(snap, w.id);
                   return (
                     <div className="wirow" key={w.id}>
-                      <span className="wi-rank">
-                        <button className="wi-rank-btn" title="Move up" disabled={i === 0} onClick={() => onReorder(w.id, i - 1)}>▲</button>
-                        <button className="wi-rank-btn" title="Move down" disabled={i === wi.length - 1} onClick={() => onReorder(w.id, i + 1)}>▼</button>
-                      </span>
+                      {selecting
+                        ? <input type="checkbox" checked={selected.has(w.id)} title="Select for bulk edit"
+                            onChange={() => toggleSel(w.id)} />
+                        : <span className="wi-rank">
+                            <button className="wi-rank-btn" title="Move up" disabled={i === 0} onClick={() => onReorder(w.id, i - 1)}>▲</button>
+                            <button className="wi-rank-btn" title="Move down" disabled={i === wi.length - 1} onClick={() => onReorder(w.id, i + 1)}>▼</button>
+                          </span>}
                       <TypeBox type={editing ? draft.type : w.type} />
                       <span className="wid">{w.id}</span>
                       {blockers.length > 0 && w.state !== "done" &&

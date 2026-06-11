@@ -1,6 +1,8 @@
 /* Client-side API helpers — thin typed wrapper over fetch + the response envelope.
    A 401 anywhere redirects to /login (session expired or not signed in). */
 import type { Item, PdlcEvent, Role } from "./engine";
+import type { SearchHit } from "./search";
+import type { SprintState } from "./sprints";
 
 export interface ApiUser { id: string; email: string; name: string; role: Role; }
 
@@ -44,6 +46,10 @@ export interface AnnouncementInfo {
 }
 
 export const fetchMe = () => call<{ user: ApiUser }>("/api/auth/me");
+
+/** Server-side "search everything" over the caller's scoped items. */
+export const searchAll = (q: string) =>
+  call<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`);
 export const fetchItems = () => call<{ items: Item[]; versions: Record<string, number> }>("/api/items");
 export const fetchStructure = () => call<Structure>("/api/structure");
 export const logout = () => call<Record<string, never>>("/api/auth/logout", { method: "POST" });
@@ -54,6 +60,18 @@ export function postCommand(itemId: string, command: unknown, expectedVersion: n
     body: JSON.stringify({ command, expectedVersion }),
   });
 }
+
+/* ---------- bulk commands (1..50 ops; partial success — caller refetches) ---------- */
+export interface BulkOp { itemId: string; expectedVersion: number; command: unknown; }
+export interface BulkOpResult {
+  itemId: string; status: "ok" | "stale" | "rejected" | "not_found";
+  version?: number; event?: PdlcEvent; error?: string;
+}
+
+export const bulkCommands = (ops: BulkOp[]) =>
+  call<{ results: BulkOpResult[] }>("/api/items/bulk", {
+    method: "POST", body: JSON.stringify({ ops }),
+  });
 
 export function postSpawn(spawnFrom: string, expectedVersion: number) {
   return call<{ child: Item; parentEvent: PdlcEvent; parentVersion: number }>("/api/items", {
@@ -108,4 +126,39 @@ export const teamProjectOp = (teamId: string, projectId: string, op: "add" | "re
 export const assignItemProject = (itemId: string, projectId: string | null) =>
   call<Record<string, never>>(`/api/items/${encodeURIComponent(itemId)}/project`, {
     method: "PATCH", body: JSON.stringify({ projectId }),
+  });
+
+/* ---------- Notifications (watchers + @mentions; own rows only) ---------- */
+export interface NotificationInfo {
+  id: string; itemId: string | null; kind: string; message: string;
+  readAt: string | null; createdAt: string;
+}
+
+export const fetchNotifications = () =>
+  call<{ notifications: NotificationInfo[] }>("/api/notifications");
+
+/** Mark notifications read; omit ids to mark ALL read. */
+export const markNotificationsRead = (ids?: string[]) =>
+  call<Record<string, never>>("/api/notifications", {
+    method: "POST", body: JSON.stringify({ op: "read", ...(ids ? { ids } : {}) }),
+  });
+
+/* ---------- Sprint registry (work items keep their free-text sprint string) ---------- */
+export interface SprintInfo {
+  id: string; teamId: string; name: string;
+  start: string | null; end: string | null;   // YYYY-MM-DD
+  state: SprintState;
+}
+
+export const fetchSprints = (teamId: string) =>
+  call<{ sprints: SprintInfo[] }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`);
+
+export const createSprint = (teamId: string, name: string, start: string | null = null, end: string | null = null) =>
+  call<{ id: string }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`, {
+    method: "POST", body: JSON.stringify({ name, start, end }),
+  });
+
+export const updateSprint = (id: string, patch: { name?: string; start?: string | null; end?: string | null; state?: SprintState }) =>
+  call<Record<string, never>>(`/api/sprints/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify(patch),
   });

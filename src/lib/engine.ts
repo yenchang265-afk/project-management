@@ -28,13 +28,19 @@ export type WiSeverity = 1 | 2 | 3 | 4; // 1 = Critical .. 4 = Low
 export type WiPhase = "discovery" | "build" | "verify" | "release";
 export type WiLinkType = "blocks" | "relates" | "duplicates";
 export interface WiLink { type: WiLinkType; target: string; }
+/** Item-level cross-item links (ITEM_LINK / ITEM_UNLINK) — same kinds as WI links.
+ *  INFORMATIONAL v1: links never gate spine transitions (applyTransition stays
+ *  single-item); the inverse direction is computed by callers via itemBlockedBy. */
+export type ItemLinkKind = "blocks" | "relates" | "duplicates";
+export interface ItemLink { to: string; linkKind: ItemLinkKind; }
 /** Wire/event form of a work-item patch: null means "clear this field".
  *  (undefined doesn't survive JSON — DB payloads and HTTP both drop it.) */
 export type WiPatchWire = { [K in keyof WorkItem]?: WorkItem[K] | null };
 export type EventType =
   | "CREATE" | "TRANSITION" | "CONDITION_SATISFY" | "CONDITION_WAIVE"
   | "CONDITION_RESET" | "SHIFT_LEFT_SET" | "GATE_SIGNOFF" | "GATE_SIGNOFF_CLEAR"
-  | "SUBTRACK" | "FLAG_SET" | "SPAWN_CHILD"
+  | "SUBTRACK" | "FLAG_SET" | "SPAWN_CHILD" | "ITEM_COMMENT" | "WATCH_SET"
+  | "ITEM_LINK" | "ITEM_UNLINK"
   | "WI_CREATE" | "WI_UPDATE" | "WI_DELETE" | "WI_COMMENT"
   | "WI_LINK" | "WI_UNLINK" | "WI_REORDER";
 
@@ -80,7 +86,8 @@ export interface PdlcEvent {
   role: Role;
   ts: number;
   from?: StateKey;
-  to?: StateKey | SubtrackState;
+  // TRANSITION/CREATE: StateKey · SUBTRACK: SubtrackState · ITEM_LINK/ITEM_UNLINK: target ITEM id
+  to?: StateKey | SubtrackState | (string & {});
   kind?: TransitionKind;
   reason?: string | null;
   condition?: string;
@@ -90,11 +97,13 @@ export interface PdlcEvent {
   value?: boolean;
   risk?: string;
   child?: string;
+  on?: boolean;             // WATCH_SET: true = actor starts watching, false = stops
   wiId?: string;            // target work-item id (WI_CREATE / WI_UPDATE / WI_DELETE / WI_COMMENT / WI_LINK / WI_UNLINK)
   wi?: WiPatchWire;         // WI_CREATE: full fields · WI_UPDATE: patch (null = clear the field — JSON-safe)
-  text?: string;            // WI_COMMENT body
+  text?: string;            // WI_COMMENT / ITEM_COMMENT body
   linkType?: WiLinkType;    // WI_LINK / WI_UNLINK
   linkTarget?: string;      // WI_LINK / WI_UNLINK: the other work item
+  linkKind?: ItemLinkKind;  // ITEM_LINK / ITEM_UNLINK (the target item id travels in `to`)
   order?: string[];         // WI_REORDER: full ordered id list at the time of the event
 }
 
@@ -154,6 +163,9 @@ export interface Snapshot {
   children: string[];
   workItems: WorkItem[];
   activeRisks: Set<string>;
+  comments: WiComment[];     // DERIVED from ITEM_COMMENT events — the item-level discussion thread
+  watchers: Set<string>;     // DERIVED from WATCH_SET events — actor names currently watching
+  links: ItemLink[];         // DERIVED from ITEM_LINK/ITEM_UNLINK — outgoing cross-item links (informational; never gate transitions)
   events: PdlcEvent[];
 }
 
@@ -318,6 +330,9 @@ export function deriveItem(item: Item): Snapshot {
     return copy;
   });
   const commentsByWi: Record<string, WiComment[]> = {}; // WI_COMMENT thread per work item
+  const comments: WiComment[] = [];                     // ITEM_COMMENT thread on the item itself
+  const watchers = new Set<string>();                   // WATCH_SET: actor names currently watching
+  let links: ItemLink[] = [];                           // ITEM_LINK/ITEM_UNLINK: outgoing cross-item links
   let wiOrder: string[] | null = null;                  // latest WI_REORDER wins
 
   // seed condition defaults from BOTH gates
@@ -361,6 +376,22 @@ export function deriveItem(item: Item): Snapshot {
         break;
       case "SPAWN_CHILD":
         if (e.child) children.push(e.child);
+        break;
+      case "ITEM_COMMENT":
+        if (e.text) comments.push({ id: e.id, author: e.actor, role: e.role, ts: e.ts, text: e.text });
+        break;
+      case "WATCH_SET":
+        if (e.on) watchers.add(e.actor);
+        else watchers.delete(e.actor);
+        break;
+      case "ITEM_LINK":
+        // informational v1 — links never gate transitions; self-links are rejected at the command level
+        if (e.to && e.linkKind && !links.some((l) => l.to === e.to && l.linkKind === e.linkKind))
+          links = [...links, { to: e.to, linkKind: e.linkKind }];
+        break;
+      case "ITEM_UNLINK":
+        if (e.to && e.linkKind)
+          links = links.filter((l) => !(l.to === e.to && l.linkKind === e.linkKind));
         break;
       case "WI_CREATE":
         if (e.wiId && !workItems.some((w) => w.id === e.wiId)) {
@@ -480,7 +511,7 @@ export function deriveItem(item: Item): Snapshot {
   // attach derived comment threads (omit when none, to keep comment-less items' shape stable)
   workItems = workItems.map((w) => (commentsByWi[w.id] ? { ...w, comments: commentsByWi[w.id] } : w));
 
-  return { state, conditions, flags, signoffs, subtracks, children, workItems, activeRisks, events };
+  return { state, conditions, flags, signoffs, subtracks, children, workItems, activeRisks, comments, watchers, links, events };
 }
 
 /* ---------- Gate status (generic — same logic for every gate) ---------- */
@@ -598,6 +629,32 @@ export const WI_LINK_LABELS: Record<WiLinkType, { out: string; in: string }> = {
 };
 const WI_LINK_SET = new Set<string>(WI_LINK_TYPES);
 const SYMMETRIC_LINKS = new Set<WiLinkType>(["relates", "duplicates"]);
+
+/* ---------- Item-level links (cross-item dependencies) ----------
+   Same kinds + labels as WI links, but between ITEMS (ITEM_LINK / ITEM_UNLINK
+   events fold into Snapshot.links). INFORMATIONAL v1: links never gate spine
+   transitions — applyTransition keeps its single-item signature and never
+   consults other items. The inverse ("blocked by") direction is computed by
+   callers from the other items via itemBlockedBy, exactly like wiBlockedBy. */
+export const ITEM_LINK_KINDS: ItemLinkKind[] = ["blocks", "relates", "duplicates"];
+export const ITEM_LINK_LABELS: Record<ItemLinkKind, { out: string; in: string }> = {
+  blocks:     { out: "blocks",        in: "blocked by" },
+  relates:    { out: "relates to",    in: "relates to" },
+  duplicates: { out: "duplicates",    in: "duplicated by" },
+};
+
+/** Ids of OPEN items (not done / closed-lane) whose snapshot carries a `blocks`
+ *  link pointing at `item`. Pure; callers pass the full item list. */
+export function itemBlockedBy(item: Item, all: Item[]): string[] {
+  return all
+    .filter((other) => {
+      if (other.id === item.id) return false;
+      const snap = deriveItem(other);
+      if (STATES[snap.state].lane === "closed") return false; // done — no longer blocks
+      return snap.links.some((l) => l.linkKind === "blocks" && l.to === item.id);
+    })
+    .map((o) => o.id);
+}
 
 /* ---------- Work-item workflow (declarative, per type — same philosophy as TRANSITIONS) ----------
    transitionWorkItem enforces these moves (and open blockers); updateWorkItem stays a

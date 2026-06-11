@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth } from "@/server/auth";
-import { parseBody, requirePM } from "@/server/http";
+import { parseBody } from "@/server/http";
+import { requirePerm } from "@/server/permissions";
 import { createProject } from "@/server/repo/structure";
 
 const CreateProjectSchema = z.object({
@@ -11,7 +12,7 @@ const CreateProjectSchema = z.object({
 }).strict();
 
 export const POST = withAuth(async (req, user) => {
-  const guard = requirePM(user);
+  const guard = requirePerm(user, "manage_projects");
   if (guard) return guard;
   const body = await parseBody(req, CreateProjectSchema);
   if (!body.ok) return body.res;

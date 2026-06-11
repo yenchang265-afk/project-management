@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth } from "@/server/auth";
-import { parseBody, requirePM } from "@/server/http";
+import { parseBody } from "@/server/http";
+import { requirePerm } from "@/server/permissions";
 import { addTeamMember, removeTeamMember } from "@/server/repo/structure";
 
 const MemberOpSchema = z.object({
@@ -12,7 +13,7 @@ const MemberOpSchema = z.object({
 type Ctx = { params: Promise<{ id: string }> };
 
 export const POST = withAuth<Ctx>(async (req, user, ctx) => {
-  const guard = requirePM(user);
+  const guard = requirePerm(user, "manage_teams");
   if (guard) return guard;
   const { id: teamId } = await ctx.params;
   const body = await parseBody(req, MemberOpSchema);

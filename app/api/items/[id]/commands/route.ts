@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/server/auth";
 import { CommandRequestSchema } from "@/server/commands";
+import { notifyAfterCommand } from "@/server/notify";
 import { applyCommand, getItem } from "@/server/repo/items";
 import { getScope, itemInScope } from "@/server/scope";
 
@@ -28,6 +29,8 @@ export const POST = withAuth<Ctx>(async (req, user, ctx) => {
 
   switch (out.status) {
     case "ok":
+      // best-effort fan-out: watchers/@mentions — never blocks or fails the command
+      void notifyAfterCommand(found.item, out.event);
       return NextResponse.json({ success: true, data: { event: out.event, version: out.version } });
     case "stale":
       return NextResponse.json({ success: false, error: "stale", data: { item: out.item, version: out.version } }, { status: 409 });

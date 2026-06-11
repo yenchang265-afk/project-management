@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth } from "@/server/auth";
-import { parseBody, requirePM } from "@/server/http";
+import { parseBody } from "@/server/http";
+import { requirePerm } from "@/server/permissions";
 import { setTeamOrg } from "@/server/repo/structure";
 
 // orgId null clears the team's org (moves it to "Unassigned").
@@ -10,7 +11,7 @@ const SetOrgSchema = z.object({ orgId: z.string().min(1).max(36).nullable() }).s
 type Ctx = { params: Promise<{ id: string }> };
 
 export const PATCH = withAuth<Ctx>(async (req, user, ctx) => {
-  const guard = requirePM(user);
+  const guard = requirePerm(user, "manage_teams");
   if (guard) return guard;
   const { id: teamId } = await ctx.params;
   const body = await parseBody(req, SetOrgSchema);
