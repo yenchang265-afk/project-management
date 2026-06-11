@@ -15,6 +15,14 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24);
 }
 
+/** Preflight for writers that reference an org: returns an error result if the
+ *  org id is set but absent, else null. */
+async function orgMissing(orgId: string | null): Promise<{ ok: false; error: string } | null> {
+  if (orgId == null) return null;
+  const [o] = await pool().query<RowDataPacket[]>("SELECT id FROM organizations WHERE id = ?", [orgId]);
+  return o[0] ? null : { ok: false, error: "Organization not found." };
+}
+
 export interface ProjectInfo {
   id: string; key: string; name: string; description: string | null; teamIds: string[];
 }
@@ -132,10 +140,8 @@ export async function deleteOrg(id: string): Promise<WriteResult> {
 
 export async function createTeam(name: string, orgId: string | null = null): Promise<WriteResult> {
   const id = "team-" + slug(name);
-  if (orgId != null) {
-    const [o] = await pool().query<RowDataPacket[]>("SELECT id FROM organizations WHERE id = ?", [orgId]);
-    if (!o[0]) return { ok: false, error: "Organization not found." };
-  }
+  const miss = await orgMissing(orgId);
+  if (miss) return miss;
   try {
     await pool().query("INSERT INTO teams (id, name, org_id) VALUES (?, ?, ?)", [id, name, orgId]);
     return { ok: true, id };
@@ -147,10 +153,8 @@ export async function createTeam(name: string, orgId: string | null = null): Pro
 
 /** Move a team into an org (or clear with null). Strict tree: one org per team. */
 export async function setTeamOrg(teamId: string, orgId: string | null): Promise<WriteResult> {
-  if (orgId != null) {
-    const [o] = await pool().query<RowDataPacket[]>("SELECT id FROM organizations WHERE id = ?", [orgId]);
-    if (!o[0]) return { ok: false, error: "Organization not found." };
-  }
+  const miss = await orgMissing(orgId);
+  if (miss) return miss;
   const [r] = await pool().query<ResultSetHeader>(
     "UPDATE teams SET org_id = ? WHERE id = ?", [orgId, teamId]);
   if (r.affectedRows === 0) return { ok: false, error: "Team not found." };

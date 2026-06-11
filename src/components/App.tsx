@@ -501,7 +501,7 @@ export default function App() {
               </span>
             </div>
           </div>
-          {(mode === "projects" || mode === "org") && <div className="side-head">
+          <div className="side-head">
             <div className="nav-search">
               <span className="ns-ic">⌕</span>
               <input value={query} onChange={(e) => setQuery(e.target.value)}
@@ -515,7 +515,7 @@ export default function App() {
                 </button>
               ))}
             </div>}
-          </div>}
+          </div>
           <div className="itemtree scroll">
             <Navigator mode={mode} meId={me.id} orgs={structure.orgs} projects={structure.projects} teams={structure.teams} items={items}
               selId={selId} selTeamId={mode === "org" ? selTeamId : null} selOrgId={mode === "org" ? selOrgId : null}
