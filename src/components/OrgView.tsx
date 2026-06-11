@@ -90,7 +90,7 @@ export function OrgView({ meId, selOrgId, orgs, projects, teams, items, announce
   const orgAnn = announcements.filter((a) => a.scopeType === "org" && a.scopeId === org.id);
 
   return (
-    <main className="detail board-main">
+    <main className="detail scroll">
       <div className="company-wrap">
         <div className="ov-head">
           <div>

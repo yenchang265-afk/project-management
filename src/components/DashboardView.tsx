@@ -71,7 +71,7 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
       .map((w) => ({ id: w.id, title: w.title, state: w.state, itemId: it.id, itemTitle: it.title })));
 
   return (
-    <main className="detail board-main">
+    <main className="detail scroll">
       <div className="company-wrap dash-wrap">
         <div className="ov-head">
           <div>
