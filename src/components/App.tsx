@@ -33,6 +33,7 @@ import { ItemLinks } from "./ItemLinks";
 import { ListView } from "./ListView";
 import { TimelineView } from "./TimelineView";
 import { CalendarView } from "./CalendarView";
+import { ProjectSummaryView } from "./ProjectSummaryView";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -101,7 +102,7 @@ export default function App() {
   const [selOrgId, setSelOrgId] = useState<string | null>(null);
   // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
   const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
-  const [view, setView] = useState<"detail" | "board" | "list" | "timeline" | "calendar">("detail");
+  const [view, setView] = useState<"detail" | "board" | "list" | "timeline" | "calendar" | "summary">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -549,9 +550,10 @@ export default function App() {
         </div>
         {mode === "projects" &&
           <div className="viewswitch">
-            {(["detail", "board", "list", "timeline", "calendar"] as const).map((v) => (
+            {(["detail", "board", "list", "timeline", "calendar", "summary"] as const).map((v) => (
               <button key={v} data-on={view === v} onClick={() => setView(v)}>
-                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : v === "list" ? "☰ List" : v === "timeline" ? "⇶ Timeline" : "◫ Calendar"}
+                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : v === "list" ? "☰ List"
+                  : v === "timeline" ? "⇶ Timeline" : v === "calendar" ? "◫ Calendar" : "◎ Summary"}
               </button>
             ))}
           </div>}
@@ -712,6 +714,14 @@ export default function App() {
           <main className="detail board-main">
             <CalendarView items={items}
               onOpen={(itemId, wiId) => { setSelId(itemId); if (wiId) setOpenWiId(wiId); else setView("detail"); }} />
+          </main>}
+
+        {/* PROJECT SUMMARY */}
+        {mode === "projects" && view === "summary" &&
+          <main className="detail board-main">
+            <ProjectSummaryView items={items} projects={structure.projects}
+              initialProjectId={item.project ?? null}
+              onSelectItem={(id) => { setSelId(id); setView("detail"); }} />
           </main>}
 
         {/* DETAIL */}
