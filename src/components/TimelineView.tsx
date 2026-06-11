@@ -44,7 +44,7 @@ export function TimelineView({ items, onSelect }: TimelineViewProps) {
   }), [items]);
 
   if (!rows.length)
-    return <div className="card"><div className="card-b"><div className="wi-empty">No items to chart.</div></div></div>;
+    return <div className="card" style={{ margin: "14px 18px" }}><div className="card-b"><div className="wi-empty">No items to chart.</div></div></div>;
 
   const min = Math.min(...rows.map((r) => r.start));
   const max = Math.max(...rows.map((r) => Math.max(r.target, r.actualEnd)));
@@ -52,12 +52,12 @@ export function TimelineView({ items, onSelect }: TimelineViewProps) {
   const pct = (ts: number) => ((ts - min) / span) * 100;
 
   return (
-    <div className="card" style={{ overflow: "hidden" }}>
+    <div className="card" style={{ overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", margin: "14px 18px" }}>
       <div className="card-h">
         <h3>Timeline <span className="wi-cc">{rows.length}</span></h3>
         <span className="mono rep-sub">{fmtDate(min)} → {fmtDate(max)} · planned bar vs actual fill</span>
       </div>
-      <div className="card-b scroll" style={{ maxHeight: "75vh", overflow: "auto" }}>
+      <div className="card-b scroll" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {rows.map((r) => (
           <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid var(--border-1)" }}>
             <button className="mono" onClick={() => onSelect(r.id)} title={r.title}

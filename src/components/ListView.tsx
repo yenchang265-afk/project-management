@@ -96,12 +96,12 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
   }
 
   return (
-    <div className="card" style={{ overflow: "hidden" }}>
+    <div className="card" style={{ overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", margin: "14px 18px" }}>
       <div className="card-h">
         <h3>All work items <span className="wi-cc">{rows.length}/{all.length}</span></h3>
         <button className="act" onClick={exportCsv} disabled={!rows.length}>⤓ CSV</button>
       </div>
-      <div className="card-b">
+      <div className="card-b" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div className="board-filters" style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 8 }}>
           <input value={q} placeholder="Filter by text…" aria-label="Filter text"
             onChange={(e) => setQ(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
@@ -125,7 +125,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
           {cqlParsed && !cqlParsed.ok &&
             <div className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11, paddingTop: 4 }}>⚠ {cqlParsed.error}</div>}
         </div>
-        <div className="scroll" style={{ maxHeight: "70vh", overflow: "auto" }}>
+        <div className="scroll" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
           <table className="list-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr>
