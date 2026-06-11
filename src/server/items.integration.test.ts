@@ -25,7 +25,8 @@ describe.skipIf(!adminUrl)("repo/items against MariaDB (cadence_test)", () => {
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["events", "sessions", "team_members", "project_teams", "teams", "projects", "users", "items", "schema_migrations"])
+    for (const t of ["notifications", "events", "sessions", "sprints", "team_members", "project_teams",
+                     "teams", "organizations", "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
     await admin.query("SET FOREIGN_KEY_CHECKS=1");
     const dir = join(process.cwd(), "migrations");

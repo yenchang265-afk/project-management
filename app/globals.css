@@ -816,3 +816,15 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .bell-msg{flex:1;min-width:0;line-height:1.4;}
 .bell-ts{flex:0 0 auto;font-size:10px;color:var(--text-3);margin-top:1px;}
 .flagbtn[data-on="true"].watch{background:color-mix(in oklch,var(--accent) 13%,var(--surface));border-color:color-mix(in oklch,var(--accent) 40%,var(--border));color:var(--accent);}
+
+/* ============================ REPORT CHARTS ============================ */
+/* Hand-rolled SVG report cards (Reports.tsx) — reuse the .card shells. */
+.rep-svg{display:block;width:100%;height:auto;}
+.rep-axis{font-family:var(--mono);font-size:9px;fill:var(--text-3);}
+.rep-grid{stroke:var(--border);stroke-width:1;}
+.rep-sub{font-size:10px;color:var(--text-3);}
+.rep-legend{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:8px;font-size:10px;color:var(--text-2);}
+.rep-legend>span{display:inline-flex;align-items:center;gap:4px;}
+.rep-leg-dot{width:8px;height:8px;border-radius:2px;flex:0 0 auto;}
+.rep-leg-dash{height:0;border-top:2px dashed var(--text-3);border-radius:0;}
+.ts-reports{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;}

@@ -5,6 +5,7 @@ import { deriveItem, wiBlockedBy, type Item, type WiState, type WorkItem } from 
 import { createSprint, fetchSprints, type AnnouncementInfo, type OrgInfo, type ProjectInfo, type SprintInfo, type TeamInfo, type TeamMemberInfo } from "@/lib/api";
 import { mergeSprintNames, pickDefaultSprint } from "@/lib/sprints";
 import { Avatar, TypeBox, WI_STATES } from "./badges";
+import { BurndownCard, VelocityCard } from "./Reports";
 import { RecentWork } from "./RecentWork";
 import { Announcements } from "./Announcements";
 
@@ -217,6 +218,12 @@ export function TeamSpace({ team, orgs, projects, items, users, canManage, onMov
                 ))}
               </div>}
         </div>
+      </div>
+
+      {/* report charts — burndown for the selected sprint + velocity across sprints */}
+      <div className="ts-reports">
+        <BurndownCard items={teamItems} sprint={active} />
+        <VelocityCard items={teamItems} sprints={sprints} />
       </div>
 
       {/* backlog */}
