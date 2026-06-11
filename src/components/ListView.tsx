@@ -1,0 +1,152 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  deriveItem, legalWiMoves,
+  type Item, type WiState, type WiType, type WorkItem,
+} from "@/lib/engine";
+import { TypeBox, WI_STATES, WI_TYPES } from "./badges";
+
+/* Flat, spreadsheet-style list of every work item across the visible items
+   (Jira "list view"). Filters are AND-combined; state edits go through the
+   same flow-checked wiMove command as the board. CSV export is client-side
+   over the FILTERED rows. */
+
+interface Row { itemId: string; itemTitle: string; wi: WorkItem; }
+
+interface ListViewProps {
+  items: Item[];
+  onMove: (itemId: string, wiId: string, to: WiState) => void;
+  onOpen: (itemId: string, wiId: string) => void;
+}
+
+const COLS = ["id", "title", "item", "type", "state", "assignee", "sprint", "points", "time"] as const;
+
+function csvEscape(v: string): string {
+  return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+export function ListView({ items, onMove, onOpen }: ListViewProps) {
+  const [q, setQ] = useState("");
+  const [fType, setFType] = useState<"" | WiType>("");
+  const [fState, setFState] = useState<"" | WiState>("");
+  const [fAssignee, setFAssignee] = useState("");
+
+  const all: Row[] = useMemo(
+    () => items.flatMap((it) => deriveItem(it).workItems.map((wi) => ({ itemId: it.id, itemTitle: it.title, wi }))),
+    [items],
+  );
+  const assignees = useMemo(
+    () => Array.from(new Set(all.map((r) => r.wi.assignee).filter(Boolean))).sort(),
+    [all],
+  );
+
+  const rows = all.filter((r) => {
+    if (fType && r.wi.type !== fType) return false;
+    if (fState && r.wi.state !== fState) return false;
+    if (fAssignee && r.wi.assignee !== fAssignee) return false;
+    if (q) {
+      const needle = q.toLowerCase();
+      const hay = `${r.wi.id} ${r.wi.title} ${r.itemId} ${r.itemTitle} ${(r.wi.tags || []).join(" ")}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
+
+  function exportCsv() {
+    const head = ["id", "title", "item", "item_title", "type", "state", "assignee", "sprint", "story_points", "priority", "time_spent_h", "remaining_h", "tags"];
+    const lines = [head.join(",")];
+    for (const r of rows) {
+      lines.push([
+        r.wi.id, r.wi.title, r.itemId, r.itemTitle, r.wi.type, r.wi.state, r.wi.assignee,
+        r.wi.sprint ?? "", r.wi.storyPoints != null ? String(r.wi.storyPoints) : "",
+        r.wi.priority != null ? String(r.wi.priority) : "",
+        r.wi.timeSpent != null ? String(r.wi.timeSpent) : "",
+        r.wi.remainingEstimate != null ? String(r.wi.remainingEstimate) : "",
+        (r.wi.tags || []).join(";"),
+      ].map((c) => csvEscape(String(c))).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "work-items.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="card" style={{ overflow: "hidden" }}>
+      <div className="card-h">
+        <h3>All work items <span className="wi-cc">{rows.length}/{all.length}</span></h3>
+        <button className="act" onClick={exportCsv} disabled={!rows.length}>⤓ CSV</button>
+      </div>
+      <div className="card-b">
+        <div className="board-filters" style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 8 }}>
+          <input value={q} placeholder="Filter by text…" aria-label="Filter text"
+            onChange={(e) => setQ(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
+          <select value={fType} aria-label="Filter type" onChange={(e) => setFType(e.target.value as "" | WiType)}>
+            <option value="">All types</option>
+            {Object.keys(WI_TYPES).map((t) => <option key={t} value={t}>{WI_TYPES[t as WiType].label}</option>)}
+          </select>
+          <select value={fState} aria-label="Filter state" onChange={(e) => setFState(e.target.value as "" | WiState)}>
+            <option value="">All states</option>
+            {Object.keys(WI_STATES).map((s) => <option key={s} value={s}>{WI_STATES[s as WiState].label}</option>)}
+          </select>
+          <select value={fAssignee} aria-label="Filter assignee" onChange={(e) => setFAssignee(e.target.value)}>
+            <option value="">All assignees</option>
+            {assignees.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div className="scroll" style={{ maxHeight: "70vh", overflow: "auto" }}>
+          <table className="list-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr>
+                {COLS.map((c) => (
+                  <th key={c} style={{ textAlign: "left", padding: "6px 8px", position: "sticky", top: 0, background: "var(--bg-1)", borderBottom: "1px solid var(--border-2)" }}
+                    className="mono">{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 &&
+                <tr><td colSpan={COLS.length} style={{ padding: 16 }}><div className="wi-empty">No work items match.</div></td></tr>}
+              {rows.map((r) => {
+                const moves = legalWiMoves(r.wi);
+                return (
+                  <tr key={r.itemId + ":" + r.wi.id} style={{ borderBottom: "1px solid var(--border-1)" }}>
+                    <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>
+                      <button className="linklike mono" onClick={() => onOpen(r.itemId, r.wi.id)}
+                        style={{ background: "none", border: 0, cursor: "pointer", color: "var(--accent)", padding: 0 }}>
+                        {r.wi.id}
+                      </button>
+                    </td>
+                    <td style={{ padding: "4px 8px", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.wi.parentWiId && <span className="mono" title={`subtask of ${r.wi.parentWiId}`} style={{ color: "var(--text-3)" }}>↳ </span>}
+                      {r.wi.title}
+                    </td>
+                    <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap", color: "var(--text-3)" }}>{r.itemId}</td>
+                    <td style={{ padding: "4px 8px" }}><TypeBox type={r.wi.type} size={14} /></td>
+                    <td style={{ padding: "4px 8px" }}>
+                      <select value={r.wi.state} aria-label={`State of ${r.wi.id}`}
+                        onChange={(e) => onMove(r.itemId, r.wi.id, e.target.value as WiState)}>
+                        <option value={r.wi.state}>{WI_STATES[r.wi.state].label}</option>
+                        {moves.map((s) => <option key={s} value={s}>→ {WI_STATES[s].label}</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{r.wi.assignee || <span style={{ color: "var(--text-3)" }}>—</span>}</td>
+                    <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{r.wi.sprint ?? ""}</td>
+                    <td className="mono" style={{ padding: "4px 8px", textAlign: "right" }}>{r.wi.storyPoints ?? ""}</td>
+                    <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap", color: "var(--text-3)" }}>
+                      {r.wi.timeSpent != null ? `${r.wi.timeSpent}h` : ""}{r.wi.remainingEstimate != null ? ` / ${r.wi.remainingEstimate}h left` : ""}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

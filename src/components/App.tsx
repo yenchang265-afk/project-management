@@ -30,6 +30,7 @@ import { GateInspector } from "./GateInspector";
 import { History } from "./History";
 import { ItemComments } from "./ItemComments";
 import { ItemLinks } from "./ItemLinks";
+import { ListView } from "./ListView";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -98,7 +99,7 @@ export default function App() {
   const [selOrgId, setSelOrgId] = useState<string | null>(null);
   // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
   const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
-  const [view, setView] = useState<"detail" | "board">("detail");
+  const [view, setView] = useState<"detail" | "board" | "list">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -546,9 +547,9 @@ export default function App() {
         </div>
         {mode === "projects" &&
           <div className="viewswitch">
-            {(["detail", "board"] as const).map((v) => (
+            {(["detail", "board", "list"] as const).map((v) => (
               <button key={v} data-on={view === v} onClick={() => setView(v)}>
-                {v === "detail" ? "▤ Details" : "▦ Board"}
+                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : "☰ List"}
               </button>
             ))}
           </div>}
@@ -690,6 +691,12 @@ export default function App() {
         {mode === "projects" && view === "board" &&
           <main className="detail board-main">
             <Board items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
+          </main>}
+
+        {/* LIST */}
+        {mode === "projects" && view === "list" &&
+          <main className="detail board-main">
+            <ListView items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
           </main>}
 
         {/* DETAIL */}
