@@ -153,6 +153,9 @@ export interface SprintInfo {
 export const fetchSprints = (teamId: string) =>
   call<{ sprints: SprintInfo[] }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`);
 
+export const fetchAllSprints = () =>
+  call<{ sprints: SprintInfo[] }>("/api/sprints");
+
 export const createSprint = (teamId: string, name: string, start: string | null = null, end: string | null = null) =>
   call<{ id: string }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`, {
     method: "POST", body: JSON.stringify({ name, start, end }),

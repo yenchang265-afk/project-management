@@ -32,6 +32,7 @@ import { ItemComments } from "./ItemComments";
 import { ItemLinks } from "./ItemLinks";
 import { ListView } from "./ListView";
 import { TimelineView } from "./TimelineView";
+import { CalendarView } from "./CalendarView";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -100,7 +101,7 @@ export default function App() {
   const [selOrgId, setSelOrgId] = useState<string | null>(null);
   // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
   const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
-  const [view, setView] = useState<"detail" | "board" | "list" | "timeline">("detail");
+  const [view, setView] = useState<"detail" | "board" | "list" | "timeline" | "calendar">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -548,9 +549,9 @@ export default function App() {
         </div>
         {mode === "projects" &&
           <div className="viewswitch">
-            {(["detail", "board", "list", "timeline"] as const).map((v) => (
+            {(["detail", "board", "list", "timeline", "calendar"] as const).map((v) => (
               <button key={v} data-on={view === v} onClick={() => setView(v)}>
-                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : v === "list" ? "☰ List" : "⇶ Timeline"}
+                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : v === "list" ? "☰ List" : v === "timeline" ? "⇶ Timeline" : "◫ Calendar"}
               </button>
             ))}
           </div>}
@@ -704,6 +705,13 @@ export default function App() {
         {mode === "projects" && view === "timeline" &&
           <main className="detail board-main">
             <TimelineView items={items} onSelect={(id) => { setSelId(id); setView("detail"); }} />
+          </main>}
+
+        {/* CALENDAR */}
+        {mode === "projects" && view === "calendar" &&
+          <main className="detail board-main">
+            <CalendarView items={items}
+              onOpen={(itemId, wiId) => { setSelId(itemId); if (wiId) setOpenWiId(wiId); else setView("detail"); }} />
           </main>}
 
         {/* DETAIL */}
