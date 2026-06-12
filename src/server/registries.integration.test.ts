@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -156,5 +156,29 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     // ON DELETE SET NULL — the member fell out of the release
     const [rows] = await admin.query("SELECT fix_version FROM items WHERE id = 'VER-1'");
     expect((rows as { fix_version: string | null }[])[0].fix_version).toBeNull();
+  });
+
+  it("api tokens: plaintext resolves to its user once minted; revoke + cascade kill it", async () => {
+    const tok = await import("./repo/tokens");
+    const s = await import("./repo/structure");
+    const maya = (await s.getUsers()).find((u) => u.name === "Maya Chen")!.id;
+
+    const minted = await tok.createToken(maya, "ci-bot", "read");
+    expect(minted.token.startsWith("cad_")).toBe(true);
+    const resolved = await tok.tokenUser(minted.token);
+    expect(resolved).toMatchObject({ id: maya, name: "Maya Chen", scope: "read" });
+    expect(await tok.tokenUser("cad_not-a-real-token")).toBeNull();
+
+    const listed = await tok.listTokens(maya);
+    expect(listed.map((t) => t.name)).toContain("ci-bot");
+    expect(JSON.stringify(listed)).not.toContain(minted.token.slice(4)); // secret never listed
+
+    expect(await tok.revokeToken(minted.id, "someone-else")).toBe(false); // owner-only
+    expect(await tok.revokeToken(minted.id, maya)).toBe(true);
+    expect(await tok.tokenUser(minted.token)).toBeNull(); // revoked
+
+    const again = await tok.createToken(maya, "doomed", "write");
+    await admin.query("DELETE FROM api_tokens WHERE user_id = ?", [maya]); // simulate cascade scope
+    expect(await tok.tokenUser(again.token)).toBeNull();
   });
 });

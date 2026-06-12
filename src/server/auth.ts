@@ -97,13 +97,34 @@ export async function currentUser(): Promise<AuthedUser | null> {
 
 type Handler<C> = (req: Request, user: AuthedUser, ctx: C) => Promise<NextResponse>;
 
-/** Wrap a route handler: 401 envelope unless a valid session is present.
- *  Unexpected throws become a generic 500 — details go to the server log only. */
+/** Resolve `Authorization: Bearer cad_…` to a user, or null. Kept separate
+ *  from cookie sessions: tokens are for integrations (REST API), and a
+ *  read-scoped token may only issue GET/HEAD requests. */
+async function bearerAuth(req: Request): Promise<{ user: AuthedUser; readOnly: boolean } | null> {
+  const header = req.headers.get("authorization");
+  if (!header?.startsWith("Bearer ")) return null;
+  const token = header.slice("Bearer ".length).trim();
+  if (!token.startsWith("cad_")) return null;
+  const { tokenUser } = await import("./repo/tokens"); // lazy: most requests are cookie-authed
+  const tu = await tokenUser(token);
+  if (!tu) return null;
+  return {
+    user: { id: tu.id, email: tu.email, name: tu.name, role: tu.role },
+    readOnly: tu.scope === "read",
+  };
+}
+
+/** Wrap a route handler: 401 envelope unless a valid session OR bearer token
+ *  is present. Unexpected throws become a generic 500 — details go to the
+ *  server log only. */
 export function withAuth<C>(handler: Handler<C>) {
   return async (req: Request, ctx: C): Promise<NextResponse> => {
-    const user = await currentUser();
-    if (!user) return NextResponse.json({ success: false, error: "Not authenticated." }, { status: 401 });
     try {
+      const bearer = await bearerAuth(req);
+      const user = bearer?.user ?? await currentUser();
+      if (!user) return NextResponse.json({ success: false, error: "Not authenticated." }, { status: 401 });
+      if (bearer?.readOnly && req.method !== "GET" && req.method !== "HEAD")
+        return NextResponse.json({ success: false, error: "This token is read-only." }, { status: 403 });
       return await handler(req, user, ctx);
     } catch (e) {
       console.error("[api] unhandled error:", e instanceof Error ? e.stack : e);
