@@ -30,10 +30,11 @@ export async function listAuditEvents(q: AuditQuery): Promise<AuditRow[]> {
   if (q.itemId) { where.push("item_id = ?"); args.push(q.itemId); }
   if (q.beforeSeq != null) { where.push("seq < ?"); args.push(q.beforeSeq); }
   const limit = Math.max(1, Math.min(200, q.limit ?? 50));
+  args.push(limit);
   const [rows] = await pool().query<RowDataPacket[]>(
     `SELECT seq, item_id, type, actor, role, ts FROM events
       ${where.length ? "WHERE " + where.join(" AND ") : ""}
-      ORDER BY seq DESC LIMIT ${limit}`, args);
+      ORDER BY seq DESC LIMIT ?`, args);
   return rows.map((r) => ({
     seq: Number(r.seq), itemId: r.item_id, type: r.type, actor: r.actor, role: r.role, ts: Number(r.ts),
   }));

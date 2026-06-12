@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { rateLimited } from "@/server/rate-limit";
 import { formByToken } from "@/server/repo/forms";
 import { applyCommandAsSystem } from "@/server/repo/items";
 
@@ -13,17 +14,8 @@ const SubmitSchema = z.object({
 
 /* Deliberately UNAUTHENTICATED: the unguessable form token is the credential.
    In-memory rate limit per token (resets on server restart — dev-grade). */
-const WINDOW_MS = 5 * 60_000;
-const MAX_PER_WINDOW = 10;
-const hits = new Map<string, number[]>();
-
-function rateLimited(token: string, now: number): boolean {
-  const list = (hits.get(token) || []).filter((t) => now - t < WINDOW_MS);
-  if (list.length >= MAX_PER_WINDOW) { hits.set(token, list); return true; }
-  list.push(now);
-  hits.set(token, list);
-  return false;
-}
+const INTAKE_MAX = 10;
+const INTAKE_WINDOW_MS = 5 * 60_000;
 
 /** POST /api/intake/:token — public intake. Files a `story` in todo, tagged
  *  `intake`, on the form's target item via the NORMAL command path (system
@@ -33,7 +25,7 @@ export async function POST(req: Request, ctx: Ctx) {
   const { token } = await ctx.params;
   if (!/^[0-9a-f]{48}$/.test(token))
     return NextResponse.json({ success: false, error: "Not found." }, { status: 404 });
-  if (rateLimited(token, Date.now()))
+  if (rateLimited("intake:" + token, INTAKE_MAX, INTAKE_WINDOW_MS))
     return NextResponse.json({ success: false, error: "Too many submissions — try again later." }, { status: 429 });
 
   const form = await formByToken(token);

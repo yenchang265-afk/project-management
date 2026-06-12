@@ -95,7 +95,7 @@ export interface AutomationRun {
 export async function listRuns(limit = 50): Promise<AutomationRun[]> {
   const capped = Math.max(1, Math.min(200, limit));
   const [rows] = await pool().query<RowDataPacket[]>(
-    `SELECT rule_id, event_id, ok, detail, at FROM automation_runs ORDER BY id DESC LIMIT ${capped}`);
+    "SELECT rule_id, event_id, ok, detail, at FROM automation_runs ORDER BY id DESC LIMIT ?", [capped]);
   return rows.map((r) => ({
     ruleId: r.rule_id, eventId: r.event_id, ok: !!r.ok,
     detail: r.detail ?? null, at: new Date(r.at).toISOString(),

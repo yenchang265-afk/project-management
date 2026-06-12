@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/server/auth";
 import { deleteAttachment, getAttachment } from "@/server/repo/attachments";
+import { getItem } from "@/server/repo/items";
+import { getScope, itemInScope } from "@/server/scope";
 import { readUpload, removeUpload } from "@/server/uploads";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -13,10 +15,14 @@ function disposition(filename: string): string {
 
 /** GET /api/attachments/:id — authenticated download. Always served as an
  *  attachment with nosniff: stored bytes can never run as same-origin HTML. */
-export const GET = withAuth<Ctx>(async (_req, _user, ctx) => {
+export const GET = withAuth<Ctx>(async (_req, user, ctx) => {
   const { id } = await ctx.params;
   const att = await getAttachment(id);
   if (!att) return NextResponse.json({ success: false, error: "Attachment not found." }, { status: 404 });
+  // scope gate: out-of-scope attachments are indistinguishable from missing ones
+  const [parent, scope] = await Promise.all([getItem(att.itemId), getScope(user)]);
+  if (!parent || !itemInScope(parent.item.project ?? null, scope))
+    return NextResponse.json({ success: false, error: "Attachment not found." }, { status: 404 });
   const bytes = await readUpload(att.id);
   if (!bytes) return NextResponse.json({ success: false, error: "Stored file is missing." }, { status: 410 });
   return new NextResponse(new Uint8Array(bytes), {

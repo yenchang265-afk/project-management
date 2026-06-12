@@ -10,7 +10,7 @@ import { deriveItem, type PdlcEvent } from "@/lib/engine";
 import { parseCql, runCql, wiToCqlRow } from "@/lib/cql";
 import { enabledRulesFor, recordRun, type AutomationAction, type AutomationRule } from "./repo/automations";
 import { applyCommandAsSystem, getItem } from "./repo/items";
-import type { Command } from "./commands";
+import { type Command, WiPatchSchema } from "./commands";
 
 const AUTOMATION_ACTOR_PREFIX = "automation:";
 
@@ -22,8 +22,12 @@ function toCommand(action: AutomationAction, wiId: string | undefined): Command 
       return wiId ? ({ kind: "wiComment", wiId, text: action.text } as Command) : null;
     case "itemComment":
       return { kind: "item_comment", text: action.text } as Command;
-    case "wiUpdate":
-      return wiId ? ({ kind: "wiUpdate", wiId, patch: action.patch } as Command) : null;
+    case "wiUpdate": {
+      if (!wiId) return null;
+      const patch = WiPatchSchema.safeParse(action.patch);
+      if (!patch.success) return null;
+      return { kind: "wiUpdate", wiId, patch: patch.data } as Command;
+    }
   }
 }
 
