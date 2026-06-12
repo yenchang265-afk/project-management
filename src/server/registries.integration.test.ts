@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["item_goals", "goals", "webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -201,5 +201,30 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
 
     expect(await wh.deleteWebhook(all.id)).toBe(true);
     expect(await wh.deleteWebhook(all.id)).toBe(false);
+  });
+
+  it("goals: unique titles, idempotent membership, cascade on goal and item delete", async () => {
+    const goals = await import("./repo/goals");
+    await admin.query(
+      "INSERT INTO items (id, title, area, priority, parent, type, stakeholders, work_items) VALUES ('GOAL-1', 'T', 'A', 'High', NULL, 'feature', '[]', '[]')");
+
+    const g = await goals.createGoal("Q3 payments revamp", "2026-09-30");
+    expect(g).toEqual({ ok: true, id: "goal-q3-payments-revamp" });
+    expect((await goals.createGoal("Q3 payments revamp", null)).ok).toBe(false); // dup title
+
+    expect((await goals.goalItemOp(g.ok ? g.id : "", "GOAL-1", "add")).ok).toBe(true);
+    expect((await goals.goalItemOp("goal-q3-payments-revamp", "GOAL-1", "add")).ok).toBe(true); // idempotent
+    expect((await goals.goalItemOp("goal-q3-payments-revamp", "GOAL-nope", "add")).ok).toBe(false);
+    expect((await goals.goalItemOp("goal-nope", "GOAL-1", "add")).ok).toBe(false);
+
+    const listed = await goals.listGoals();
+    expect(listed.find((x) => x.id === "goal-q3-payments-revamp"))
+      .toMatchObject({ title: "Q3 payments revamp", targetDate: "2026-09-30", status: "active", itemIds: ["GOAL-1"] });
+
+    expect((await goals.setGoalStatus("goal-q3-payments-revamp", "done")).ok).toBe(true);
+    await admin.query("DELETE FROM items WHERE id = 'GOAL-1'"); // member item deleted → row cascades
+    expect((await goals.listGoals()).find((x) => x.id === "goal-q3-payments-revamp")!.itemIds).toEqual([]);
+    expect((await goals.deleteGoal("goal-q3-payments-revamp")).ok).toBe(true);
+    expect((await goals.deleteGoal("goal-q3-payments-revamp")).ok).toBe(false);
   });
 });

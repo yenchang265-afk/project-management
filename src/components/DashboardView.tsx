@@ -7,6 +7,7 @@ import { RecentWork } from "./RecentWork";
 import { Announcements } from "./Announcements";
 import { CfdCard, CreatedResolvedCard } from "./Reports";
 import { AuditLog } from "./AuditLog";
+import { GoalsCard } from "./GoalsCard";
 
 /* ---------------- DASHBOARD (default landing) ----------------
    Personalized to the signed-in user: their teams, their orgs, their assigned
@@ -135,6 +136,8 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
             </div>
 
             <CfdCard items={items} />
+
+            <GoalsCard items={items} canManage={isAdmin} onSelectItem={onSelectItem} />
 
             <CreatedResolvedCard items={items} />
 

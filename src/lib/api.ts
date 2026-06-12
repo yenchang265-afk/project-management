@@ -231,6 +231,20 @@ export const uploadAttachment = (itemId: string, file: File, wiId?: string) => {
 export const deleteAttachment = (id: string) =>
   call<Record<string, never>>(`/api/attachments/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/* ---------- Goals (membership stored; progress derived client-side) ---------- */
+export type GoalStatus = "active" | "done" | "cancelled";
+export interface GoalInfo {
+  id: string; title: string; targetDate: string | null; status: GoalStatus; itemIds: string[];
+}
+
+export const fetchGoals = () => call<{ goals: GoalInfo[] }>("/api/goals");
+export const createGoal = (title: string, targetDate: string | null) =>
+  call<{ id: string }>("/api/goals", { method: "POST", body: JSON.stringify({ title, targetDate }) });
+export const patchGoal = (id: string, patch: { status: GoalStatus } | { op: "add" | "remove"; itemId: string }) =>
+  call<Record<string, never>>(`/api/goals/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const deleteGoal = (id: string) =>
+  call<Record<string, never>>(`/api/goals/${encodeURIComponent(id)}`, { method: "DELETE" });
+
 /* ---------- Global audit log (PM only; seq-keyed pagination, newest first) ---------- */
 export interface AuditEventInfo {
   seq: number; itemId: string; type: string; actor: string; role: string; ts: number;
