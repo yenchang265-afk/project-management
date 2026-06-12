@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { WI_STATES_ALL, type Item, type WiState } from "@/lib/engine";
-import { burndown, burnup, cfd, velocity, wiCycleTimes } from "@/lib/reports";
+import { burndown, burnup, cfd, createdVsResolved, sprintReport, velocity, wiCycleTimes } from "@/lib/reports";
 import { areaPath, linePath, niceTicks, spanTicks, stackSeries, stepPath } from "@/lib/charts";
 import { fmtDate } from "@/lib/format";
 import { WI_STATES } from "./badges";
@@ -284,6 +284,86 @@ export function ControlChartCard({ items }: { items: Item[] }) {
     <div className="card">
       <div className="card-h"><h3>Control chart</h3>
         <span className="mono rep-sub">cycle time per finished work item</span></div>
+      <div className="card-b">{body}</div>
+    </div>
+  );
+}
+
+/* ---------------- 6. sprint report ---------------- */
+
+export function SprintReportCard({ items, sprint }: { items: Item[]; sprint: string | null }) {
+  const report = useMemo(() => (sprint ? sprintReport(items, sprint) : null), [items, sprint]);
+
+  const section = (label: string, rows: { wiId: string; title: string; points: number }[], color: string) => (
+    <div style={{ paddingBottom: 6 }}>
+      <div className="mono" style={{ fontSize: 10, color: "var(--text-3)", paddingBottom: 2 }}>
+        <span className="rep-leg-dot" style={{ background: color }} /> {label} · {rows.length}
+      </div>
+      {rows.map((r) => (
+        <div key={r.wiId} style={{ display: "flex", gap: 8, fontSize: 12, padding: "2px 0", borderBottom: "1px solid var(--border-1)" }}>
+          <span className="mono" style={{ width: 86, color: "var(--text-3)" }}>{r.wiId}</span>
+          <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</span>
+          <span className="mono">{r.points} pt</span>
+        </div>
+      ))}
+      {rows.length === 0 && <div className="wi-empty">none</div>}
+    </div>
+  );
+
+  return (
+    <div className="card">
+      <div className="card-h"><h3>Sprint report</h3>
+        <span className="mono rep-sub">{sprint ?? "—"}{report ? ` · ${report.completedPoints}/${report.committedPoints} pts` : ""}</span></div>
+      <div className="card-b">
+        {!report
+          ? <div className="wi-empty">No sprint selected.</div>
+          : <>
+              {section("completed", report.completed, "var(--ok)")}
+              {section("open", report.open, "var(--accent)")}
+              {section("spilled (moved out / deleted)", report.spilled, "var(--warn)")}
+            </>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- 7. created vs resolved ---------------- */
+
+export function CreatedResolvedCard({ items }: { items: Item[] }) {
+  const series = useMemo(() => createdVsResolved(items), [items]);
+
+  const body = (() => {
+    if (series.length < 2) return <div className="wi-empty">Not enough work-item history yet.</div>;
+    const min = series[0].ts, max = series[series.length - 1].ts;
+    const yTicks = niceTicks(Math.max(...series.map((p) => p.created)));
+    const yTop = yTicks[yTicks.length - 1] || 1;
+    const sx = (ts: number) => PL + ((ts - min) / (max - min || 1)) * (W - PL - PR);
+    const sy = (v: number) => H - PB - (v / yTop) * (H - PT - PB);
+    const last = series[series.length - 1];
+    return (
+      <>
+        <Frame>
+          <YAxis ticks={yTicks} sy={sy} />
+          <XAxis min={min} max={max} sx={sx} />
+          <path d={stepPath(series.map((p) => ({ x: sx(p.ts), y: sy(p.created) })))}
+            fill="none" stroke="var(--danger, #c4453d)" strokeWidth={1.4} />
+          <path d={stepPath(series.map((p) => ({ x: sx(p.ts), y: sy(p.resolved) })))}
+            fill="none" stroke="var(--ok)" strokeWidth={1.6} />
+        </Frame>
+        <div className="rep-legend mono">
+          <span><span className="rep-leg-dot" style={{ background: "var(--danger, #c4453d)" }} />created</span>
+          <span><span className="rep-leg-dot" style={{ background: "var(--ok)" }} />resolved</span>
+          <span className="spacer"></span>
+          <span>{last.resolved}/{last.created} resolved</span>
+        </div>
+      </>
+    );
+  })();
+
+  return (
+    <div className="card">
+      <div className="card-h"><h3>Created vs resolved</h3>
+        <span className="mono rep-sub">net work items over time</span></div>
       <div className="card-b">{body}</div>
     </div>
   );

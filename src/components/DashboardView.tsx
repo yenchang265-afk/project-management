@@ -5,7 +5,7 @@ import type { AnnouncementInfo, ApiUser, OrgInfo, ProjectInfo, TeamInfo } from "
 import { WI_STATES } from "./badges";
 import { RecentWork } from "./RecentWork";
 import { Announcements } from "./Announcements";
-import { CfdCard } from "./Reports";
+import { CfdCard, CreatedResolvedCard } from "./Reports";
 import { AuditLog } from "./AuditLog";
 
 /* ---------------- DASHBOARD (default landing) ----------------
@@ -135,6 +135,8 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
             </div>
 
             <CfdCard items={items} />
+
+            <CreatedResolvedCard items={items} />
 
             <RecentWork items={items} onOpen={onOpenWork} limit={8} />
 

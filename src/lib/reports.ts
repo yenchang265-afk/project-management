@@ -268,6 +268,60 @@ export function cfd(items: Item[], buckets = 30): CfdSample[] {
   return out;
 }
 
+/* ---------- 3b. sprint report ---------- */
+
+export interface SprintReportWi {
+  wiId: string;
+  itemId: string;
+  title: string;
+  points: number;
+  state: WiState;
+}
+
+export interface SprintReport {
+  completed: SprintReportWi[]; // in the sprint and done
+  open: SprintReportWi[];      // in the sprint, not done
+  spilled: SprintReportWi[];   // EVER in the sprint, now moved out or deleted
+  committedPoints: number;     // points of everything ever in the sprint
+  completedPoints: number;
+}
+
+/** Jira "sprint report": committed vs completed vs spilled, derived from the
+ *  everSprints history the live snapshot throws away. */
+export function sprintReport(items: Item[], sprint: string): SprintReport {
+  const { sims, events } = buildTimeline(items);
+  for (const { e, itemId } of events) applyWiEvent(sims, itemId, e);
+  const completed: SprintReportWi[] = [], open: SprintReportWi[] = [], spilled: SprintReportWi[] = [];
+  let committedPoints = 0, completedPoints = 0;
+  for (const s of sims.values()) {
+    if (!s.everSprints.has(sprint)) continue;
+    const p = points(s);
+    committedPoints += p;
+    const row: SprintReportWi = { wiId: s.wiId, itemId: s.itemId, title: s.title, points: p, state: s.state };
+    if (!s.deleted && s.sprint === sprint && s.state === "done") { completed.push(row); completedPoints += p; }
+    else if (!s.deleted && s.sprint === sprint) open.push(row);
+    else spilled.push(row);
+  }
+  return { completed, open, spilled, committedPoints, completedPoints };
+}
+
+/* ---------- 3c. created vs resolved ---------- */
+
+export interface CreatedResolvedPoint {
+  ts: number;
+  created: number;  // live (non-tombstoned) WIs existing at ts
+  resolved: number; // of those, currently done at ts
+}
+
+/** Net created vs resolved counts sampled like the CFD (at most `buckets`
+ *  evenly spaced samples). Reopening drops resolved; deleting drops both. */
+export function createdVsResolved(items: Item[], buckets = 30): CreatedResolvedPoint[] {
+  return cfd(items, buckets).map((s) => {
+    const created = Object.values(s.counts).reduce((a, b) => a + b, 0);
+    return { ts: s.ts, created, resolved: s.counts.done };
+  });
+}
+
 /* ---------- 4. cycle times ---------- */
 
 export interface WiCycleTime {
