@@ -8,6 +8,7 @@ import { Announcements } from "./Announcements";
 import { CfdCard, CreatedResolvedCard } from "./Reports";
 import { AuditLog } from "./AuditLog";
 import { GoalsCard } from "./GoalsCard";
+import { DashboardGadgets } from "./DashboardGadgets";
 
 /* ---------------- DASHBOARD (default landing) ----------------
    Personalized to the signed-in user: their teams, their orgs, their assigned
@@ -93,57 +94,57 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
         </div>
 
         <div className="dash-grid">
-          {/* main column */}
+          {/* main column — a per-user ordered list of gadgets (Jira dashboard gadgets v1) */}
           <div className="dash-main">
-            <div className="card">
-              <div className="card-h"><h3>Lifecycle spread</h3>
-                <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>{isAdmin ? "all items" : "your items"} by lane</span></div>
-              <div className="card-b">
-                <LaneBar counts={counts} total={total} />
-                <div className="lane-legend">
-                  {LANES.map((l) => (
-                    <span key={l.key} className="lane-leg">
-                      <span className={"lane-dot lane-" + l.key} style={{ background: "var(--lc)" }} />
-                      {l.label} <b className="mono">{counts[l.key]}</b>
-                    </span>
-                  ))}
+            <DashboardGadgets isAdmin={isAdmin} render={{
+              lane_spread: () => (
+                <div className="card">
+                  <div className="card-h"><h3>Lifecycle spread</h3>
+                    <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>{isAdmin ? "all items" : "your items"} by lane</span></div>
+                  <div className="card-b">
+                    <LaneBar counts={counts} total={total} />
+                    <div className="lane-legend">
+                      {LANES.map((l) => (
+                        <span key={l.key} className="lane-leg">
+                          <span className={"lane-dot lane-" + l.key} style={{ background: "var(--lc)" }} />
+                          {l.label} <b className="mono">{counts[l.key]}</b>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-h"><h3>Per-project health</h3>
-                <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>{projects.length} projects</span></div>
-              <div className="card-b">
-                <div className="proj-health">
-                  {projects.map((p) => {
-                    const pit = items.filter((it) => it.project === p.id);
-                    const psnaps = pit.map((it) => snapById.get(it.id)!);
-                    return (
-                      <div className="ph-row" key={p.id}>
-                        <div className="ph-meta">
-                          <span className="nav-pkey mono">{p.key}</span>
-                          <span className="ph-name">{p.name}</span>
-                          <span className="ph-count mono">{pit.length}</span>
-                        </div>
-                        <LaneBar counts={spread(psnaps)} total={pit.length} />
-                      </div>
-                    );
-                  })}
-                  {!projects.length && <div className="nav-empty">No projects in view.</div>}
+              ),
+              project_health: () => (
+                <div className="card">
+                  <div className="card-h"><h3>Per-project health</h3>
+                    <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>{projects.length} projects</span></div>
+                  <div className="card-b">
+                    <div className="proj-health">
+                      {projects.map((p) => {
+                        const pit = items.filter((it) => it.project === p.id);
+                        const psnaps = pit.map((it) => snapById.get(it.id)!);
+                        return (
+                          <div className="ph-row" key={p.id}>
+                            <div className="ph-meta">
+                              <span className="nav-pkey mono">{p.key}</span>
+                              <span className="ph-name">{p.name}</span>
+                              <span className="ph-count mono">{pit.length}</span>
+                            </div>
+                            <LaneBar counts={spread(psnaps)} total={pit.length} />
+                          </div>
+                        );
+                      })}
+                      {!projects.length && <div className="nav-empty">No projects in view.</div>}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            <CfdCard items={items} />
-
-            <GoalsCard items={items} canManage={isAdmin} onSelectItem={onSelectItem} />
-
-            <CreatedResolvedCard items={items} />
-
-            <RecentWork items={items} onOpen={onOpenWork} limit={8} />
-
-            {isAdmin && <AuditLog onSelectItem={onSelectItem} />}
+              ),
+              cfd: () => <CfdCard items={items} />,
+              goals: () => <GoalsCard items={items} canManage={isAdmin} onSelectItem={onSelectItem} />,
+              created_resolved: () => <CreatedResolvedCard items={items} />,
+              recent_work: () => <RecentWork items={items} onOpen={onOpenWork} limit={8} />,
+              audit_log: () => (isAdmin ? <AuditLog onSelectItem={onSelectItem} /> : null),
+            }} />
           </div>
 
           {/* right rail */}

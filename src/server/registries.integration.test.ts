@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["automation_runs", "automation_rules", "forms", "item_goals", "goals", "webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["dashboard_prefs", "automation_runs", "automation_rules", "forms", "item_goals", "goals", "webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -219,6 +219,19 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     expect(await forms.formByToken(row.publicToken)).toBeNull(); // disabled = dead link
     await admin.query("DELETE FROM items WHERE id = 'FORM-1'");
     expect((await forms.listForms()).some((f) => f.id === made.id)).toBe(false); // cascaded
+  });
+
+  it("dashboard prefs: upsert round-trip; corrupted JSON falls back to default", async () => {
+    const dash = await import("./repo/dashboard");
+    const s = await import("./repo/structure");
+    const maya = (await s.getUsers()).find((u) => u.name === "Maya Chen")!.id;
+    expect(await dash.getDashboardPrefs(maya)).toBeNull(); // no row = default layout
+    await dash.setDashboardPrefs(maya, ["cfd", "goals"]);
+    expect(await dash.getDashboardPrefs(maya)).toEqual(["cfd", "goals"]);
+    await dash.setDashboardPrefs(maya, ["goals"]); // upsert replaces
+    expect(await dash.getDashboardPrefs(maya)).toEqual(["goals"]);
+    await admin.query("UPDATE dashboard_prefs SET gadgets = '{oops' WHERE user_id = ?", [maya]);
+    expect(await dash.getDashboardPrefs(maya)).toBeNull(); // corrupted → default
   });
 
   it("automation rules: CRUD, kind filtering, corrupted actions read as disabled, runs audit", async () => {

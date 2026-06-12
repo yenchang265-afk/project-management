@@ -231,6 +231,12 @@ export const uploadAttachment = (itemId: string, file: File, wiId?: string) => {
 export const deleteAttachment = (id: string) =>
   call<Record<string, never>>(`/api/attachments/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/* ---------- Dashboard gadget prefs (ordered kinds; null = default layout) ---------- */
+export const fetchDashboardPrefs = () =>
+  call<{ gadgets: string[] | null }>("/api/dashboard");
+export const saveDashboardPrefs = (gadgets: string[]) =>
+  call<Record<string, never>>("/api/dashboard", { method: "PUT", body: JSON.stringify({ gadgets }) });
+
 /* ---------- Goals (membership stored; progress derived client-side) ---------- */
 export type GoalStatus = "active" | "done" | "cancelled";
 export interface GoalInfo {
