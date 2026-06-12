@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["forms", "item_goals", "goals", "webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["automation_runs", "automation_rules", "forms", "item_goals", "goals", "webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -219,6 +219,34 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     expect(await forms.formByToken(row.publicToken)).toBeNull(); // disabled = dead link
     await admin.query("DELETE FROM items WHERE id = 'FORM-1'");
     expect((await forms.listForms()).some((f) => f.id === made.id)).toBe(false); // cascaded
+  });
+
+  it("automation rules: CRUD, kind filtering, corrupted actions read as disabled, runs audit", async () => {
+    const auto = await import("./repo/automations");
+    const r = await auto.createRule("Done means commented", "WI_UPDATE", "state = done",
+      [{ kind: "wiComment", text: "auto: marked done" }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect((await auto.createRule("Done means commented", "WI_UPDATE", null, [])).ok).toBe(false); // dup name
+
+    expect((await auto.enabledRulesFor("WI_UPDATE")).map((x) => x.id)).toEqual([r.id]);
+    expect(await auto.enabledRulesFor("TRANSITION")).toEqual([]); // kind filter
+
+    expect((await auto.setRuleEnabled(r.id, false)).ok).toBe(true);
+    expect(await auto.enabledRulesFor("WI_UPDATE")).toEqual([]);
+    expect((await auto.setRuleEnabled(r.id, true)).ok).toBe(true);
+
+    await admin.query("UPDATE automation_rules SET actions = 'not json' WHERE id = ?", [r.id]);
+    expect(await auto.enabledRulesFor("WI_UPDATE")).toEqual([]); // corrupted row never executes
+    expect((await auto.listRules()).find((x) => x.id === r.id)!.enabled).toBe(false);
+
+    await auto.recordRun(r.id, "evt-1", true, "ok");
+    await auto.recordRun(r.id, "evt-2", false, "boom");
+    const runs = await auto.listRuns(10);
+    expect(runs[0]).toMatchObject({ ruleId: r.id, eventId: "evt-2", ok: false, detail: "boom" }); // newest first
+
+    expect((await auto.deleteRule(r.id)).ok).toBe(true);
+    expect((await auto.deleteRule(r.id)).ok).toBe(false);
   });
 
   it("goals: unique titles, idempotent membership, cascade on goal and item delete", async () => {

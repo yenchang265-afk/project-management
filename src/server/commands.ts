@@ -21,7 +21,7 @@ const itemLinkKinds = ITEM_LINK_KINDS as [typeof ITEM_LINK_KINDS[number], ...typ
 
 /* JSON can't carry undefined, so "clear this field" travels as null;
    toPatch() converts null → present-but-undefined, which the engine reads as a clear. */
-const WiPatchSchema = z.object({
+export const WiPatchSchema = z.object({
   title: z.string().max(500).optional(),
   type: z.enum(wiTypes).optional(),
   state: z.enum(wiStates).optional(),
