@@ -322,6 +322,32 @@ export function createdVsResolved(items: Item[], buckets = 30): CreatedResolvedP
   });
 }
 
+/* ---------- 3d. team capacity (plans-lite) ---------- */
+
+export interface TeamCapacity {
+  committed: number;     // points sitting in the active sprints right now
+  velocityAvg: number;   // mean done points across the closed sprints
+  ratio: number | null;  // committed / velocityAvg — null without history
+}
+
+/** Plans-lite capacity check: is the team committing more than it historically
+ *  finishes? Callers pass the team's items plus its active/closed sprint names
+ *  from the registry. */
+export function teamCapacity(items: Item[], activeSprints: string[], closedSprints: string[]): TeamCapacity {
+  // committed = CURRENT membership (a WI moved out of the sprint no longer
+  // weighs on capacity — unlike velocity's ever-membership commitment)
+  const { sims, events } = buildTimeline(items);
+  for (const { e, itemId } of events) applyWiEvent(sims, itemId, e);
+  let committed = 0;
+  for (const s of sims.values())
+    if (!s.deleted && s.sprint && activeSprints.includes(s.sprint)) committed += points(s);
+  const closed = velocity(items, closedSprints);
+  const velocityAvg = closed.length
+    ? closed.reduce((sum, row) => sum + row.donePoints, 0) / closed.length
+    : 0;
+  return { committed, velocityAvg, ratio: velocityAvg > 0 ? committed / velocityAvg : null };
+}
+
 /* ---------- 4. cycle times ---------- */
 
 export interface WiCycleTime {

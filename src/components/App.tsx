@@ -34,6 +34,7 @@ import { ListView } from "./ListView";
 import { TimelineView } from "./TimelineView";
 import { CalendarView } from "./CalendarView";
 import { ProjectSummaryView } from "./ProjectSummaryView";
+import { CapacityCard } from "./CapacityCard";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -718,10 +719,11 @@ export default function App() {
             <ListView items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} onImport={importWorkItem} />
           </main>}
 
-        {/* TIMELINE */}
+        {/* TIMELINE (+ plans-lite capacity row per team) */}
         {mode === "projects" && view === "timeline" &&
-          <main className="detail board-main">
+          <main className="detail board-main" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
             <TimelineView items={activeItems} onSelect={(id) => { setSelId(id); setView("detail"); }} />
+            <CapacityCard items={activeItems} teams={structure.teams} />
           </main>}
 
         {/* CALENDAR */}
