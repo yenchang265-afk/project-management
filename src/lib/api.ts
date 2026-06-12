@@ -231,6 +231,12 @@ export const uploadAttachment = (itemId: string, file: File, wiId?: string) => {
 export const deleteAttachment = (id: string) =>
   call<Record<string, never>>(`/api/attachments/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/* ---------- Notification prefs (email opt-in; channel needs SMTP_URL) ---------- */
+export const fetchNotificationPrefs = () =>
+  call<{ emailEnabled: boolean; channelActive: boolean }>("/api/me/notification-prefs");
+export const putNotificationPrefs = (emailEnabled: boolean) =>
+  call<Record<string, never>>("/api/me/notification-prefs", { method: "PUT", body: JSON.stringify({ emailEnabled }) });
+
 /* ---------- Dashboard gadget prefs (ordered kinds; null = default layout) ---------- */
 export const fetchDashboardPrefs = () =>
   call<{ gadgets: string[] | null }>("/api/dashboard");

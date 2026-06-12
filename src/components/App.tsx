@@ -15,7 +15,8 @@ import {
 import {
   assignItemProject, bulkCommands, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
   fetchAnnouncements, fetchItems, fetchMe, fetchNotifications, fetchStructure, fetchUsers,
-  logout, markNotificationsRead, postCommand, postSpawn, renameOrg, searchAll, setItemArchived, setTeamOrg, teamMemberOp, teamProjectOp,
+  fetchNotificationPrefs, logout, markNotificationsRead, postCommand, postSpawn, putNotificationPrefs,
+  renameOrg, searchAll, setItemArchived, setTeamOrg, teamMemberOp, teamProjectOp,
   type AnnouncementInfo, type AnnouncementScope, type ApiUser, type NotificationInfo, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
 import type { SearchHit } from "@/lib/search";
@@ -88,6 +89,8 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<AnnouncementInfo[]>([]);
   const [notifications, setNotifications] = useState<NotificationInfo[]>([]);
   const [bellOpen, setBellOpen] = useState(false);
+  const [emailPref, setEmailPref] = useState(false);
+  const [emailChannelActive, setEmailChannelActive] = useState(false);
   const [annModal, setAnnModal] = useState(false);
   const [annScope, setAnnScope] = useState<AnnouncementScope>("company");
   const [annTarget, setAnnTarget] = useState("");
@@ -149,6 +152,16 @@ export default function App() {
         setSelId(itemsRes.data.items[0].id);
     })();
   }, []);
+
+  // email opt-in: fetched once per login
+  useEffect(() => {
+    if (!me) return;
+    let live = true;
+    fetchNotificationPrefs().then((r) => {
+      if (live && r.ok) { setEmailPref(r.data.emailEnabled); setEmailChannelActive(r.data.channelActive); }
+    });
+    return () => { live = false; };
+  }, [me]);
 
   // notifications: fetch on login, then poll every 30s (cleaned up on unmount)
   useEffect(() => {
@@ -620,6 +633,15 @@ export default function App() {
                   <span className="bell-ts mono">{timeAgo(new Date(n.createdAt).getTime())}</span>
                 </button>
               ))}
+              <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", fontSize: 12, borderTop: "1px solid var(--border-1)" }}
+                title={emailChannelActive ? "Also send these as email" : "Server has no SMTP configured — emails stay off"}>
+                <input type="checkbox" checked={emailPref} disabled={!emailChannelActive}
+                  onChange={(e) => {
+                    setEmailPref(e.target.checked);
+                    void putNotificationPrefs(e.target.checked);
+                  }} />
+                Email me notifications{emailChannelActive ? "" : " (SMTP not configured)"}
+              </label>
             </div>
           </>}
         </div>
