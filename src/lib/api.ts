@@ -173,6 +173,22 @@ export const createComponent = (projectId: string, name: string) =>
 export const deleteComponent = (id: string) =>
   call<Record<string, never>>(`/api/components/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/* ---------- Global audit log (PM only; seq-keyed pagination, newest first) ---------- */
+export interface AuditEventInfo {
+  seq: number; itemId: string; type: string; actor: string; role: string; ts: number;
+}
+
+export const fetchAudit = (opts: { actor?: string; type?: string; item?: string; beforeSeq?: number; limit?: number } = {}) => {
+  const p = new URLSearchParams();
+  if (opts.actor) p.set("actor", opts.actor);
+  if (opts.type) p.set("type", opts.type);
+  if (opts.item) p.set("item", opts.item);
+  if (opts.beforeSeq != null) p.set("beforeSeq", String(opts.beforeSeq));
+  if (opts.limit != null) p.set("limit", String(opts.limit));
+  const qs = p.toString();
+  return call<{ events: AuditEventInfo[] }>(`/api/audit${qs ? `?${qs}` : ""}`);
+};
+
 /* ---------- Custom-field definitions (values travel in WI events) ---------- */
 export type FieldKind = "text" | "number" | "date" | "select";
 export interface FieldDefInfo {

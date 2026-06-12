@@ -6,6 +6,7 @@ import { WI_STATES } from "./badges";
 import { RecentWork } from "./RecentWork";
 import { Announcements } from "./Announcements";
 import { CfdCard } from "./Reports";
+import { AuditLog } from "./AuditLog";
 
 /* ---------------- DASHBOARD (default landing) ----------------
    Personalized to the signed-in user: their teams, their orgs, their assigned
@@ -136,6 +137,8 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
             <CfdCard items={items} />
 
             <RecentWork items={items} onOpen={onOpenWork} limit={8} />
+
+            {isAdmin && <AuditLog onSelectItem={onSelectItem} />}
           </div>
 
           {/* right rail */}
