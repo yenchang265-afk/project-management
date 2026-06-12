@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   WI_PHASES_ALL, WI_PHASE_LABELS, WI_TYPES_ALL, deriveItem, wiBlockedBy,
   type Item, type WiPhase, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
+import { parseCql, runCql, wiToCqlRow, type CqlQuery } from "@/lib/cql";
+import { fetchFilters, type SavedFilterInfo } from "@/lib/api";
 import { Avatar, TypeBox, WI_STATES } from "./badges";
 
 const COLUMNS: WiState[] = ["todo", "in_progress", "in_review", "blocked", "done"];
@@ -30,6 +32,27 @@ export function Board({ items, onMove, onOpen }: BoardProps) {
   const [assignee, setAssignee] = useState("all");
   const [sprint, setSprint] = useState("all");
   const [drag, setDrag] = useState<{ itemId: string; wiId: string } | null>(null);
+  // quick filters: saved CQL filters rendered as toggle pills (Jira's board quick filters)
+  const [savedFilters, setSavedFilters] = useState<SavedFilterInfo[]>([]);
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    let stale = false;
+    fetchFilters().then((r) => { if (!stale && r.ok) setSavedFilters(r.data.filters); });
+    return () => { stale = true; };
+  }, []);
+
+  function toggleFilter(id: string) {
+    setActiveFilters((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+
+  // active pills AND-combine: a card must satisfy EVERY toggled filter
+  const activeQueries: CqlQuery[] = useMemo(() =>
+    savedFilters
+      .filter((f) => activeFilters.has(f.id))
+      .map((f) => parseCql(f.cql))
+      .flatMap((p) => (p.ok ? [p.query] : [])), // unparseable saved rows are skipped
+    [savedFilters, activeFilters]);
 
   // snapshots once per render; board reads every item's work items
   const snaps = useMemo(() => items.map((it) => ({ item: it, snap: deriveItem(it) })), [items]);
@@ -55,7 +78,10 @@ export function Board({ items, onMove, onOpen }: BoardProps) {
   const rows: Row[] = snaps
     .map(({ item, snap }) => ({
       item,
-      wis: snap.workItems.filter(matches).map((w) => ({ ...w, blockedBy: wiBlockedBy(snap, w.id) })),
+      wis: snap.workItems
+        .filter(matches)
+        .filter((w) => activeQueries.every((query) => runCql(query, [wiToCqlRow(item.id, w)]).length === 1))
+        .map((w) => ({ ...w, blockedBy: wiBlockedBy(snap, w.id) })),
     }))
     .filter((r) => r.wis.length > 0);
 
@@ -96,6 +122,20 @@ export function Board({ items, onMove, onOpen }: BoardProps) {
         </select>
         <span className="mono board-count">{total} item{total === 1 ? "" : "s"}</span>
       </div>
+
+      {savedFilters.length > 0 &&
+        <div className="board-filters" style={{ paddingTop: 0, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <span className="mono" style={{ fontSize: 10, color: "var(--text-3)", alignSelf: "center" }}>quick filters:</span>
+          {savedFilters.map((f) => (
+            <button key={f.id} className="act" data-on={activeFilters.has(f.id)}
+              title={f.cql} onClick={() => toggleFilter(f.id)}
+              style={activeFilters.has(f.id) ? { background: "var(--accent)", color: "var(--bg-0, #fff)" } : undefined}>
+              {f.name}
+            </button>
+          ))}
+          {activeFilters.size > 0 &&
+            <button className="act" onClick={() => setActiveFilters(new Set())}>× clear</button>}
+        </div>}
 
       <div className="board-grid-head">
         <div className="board-lane-label"></div>
