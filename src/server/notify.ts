@@ -6,6 +6,7 @@
 import { deriveItem, label, type Item, type PdlcEvent } from "@/lib/engine";
 import { getUsers } from "./repo/structure";
 import { createNotifications, type NotificationDraft } from "./repo/notifications";
+import { emailNotifications } from "./mailer";
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -75,7 +76,10 @@ export async function notifyAfterCommand(item: Item, event: PdlcEvent): Promise<
     if (event.type !== "TRANSITION" && event.type !== "ITEM_COMMENT") return;
     const users = await getUsers();
     const rows = planNotifications(item, event, users);
-    if (rows.length) await createNotifications(rows);
+    if (rows.length) {
+      await createNotifications(rows);
+      void emailNotifications(rows); // optional channel — no-op without SMTP_URL
+    }
   } catch (e) {
     // best-effort: the command already succeeded — log and move on
     console.error("[notify] fan-out failed:", e instanceof Error ? e.stack : e);

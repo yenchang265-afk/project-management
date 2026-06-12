@@ -112,3 +112,48 @@ describe("runCql — filtering and ORDER BY", () => {
     expect(runCql(p2.query, rows).map((r) => r.id)).toEqual(["A-2", "A-3", "A-1"]);
   });
 });
+
+describe("due field (ISO dates compare lexicographically)", () => {
+  it("supports equality and range comparisons on due", () => {
+    expect(matches("due = 2026-07-01", row({ due: "2026-07-01" }))).toBe(true);
+    expect(matches('due < "2026-08-01"', row({ due: "2026-07-01" }))).toBe(true);
+    expect(matches("due > 2026-08-01", row({ due: "2026-07-01" }))).toBe(false);
+  });
+  it("due = EMPTY matches rows without a due date", () => {
+    expect(matches("due = EMPTY", row({ due: undefined }))).toBe(true);
+    expect(matches("due = EMPTY", row({ due: "2026-07-01" }))).toBe(false);
+  });
+});
+
+describe("itemsToCqlRows", () => {
+  it("flattens derived work items into rows (one per WI)", async () => {
+    const { itemsToCqlRows } = await import("./cql");
+    const { deriveItem } = await import("./engine");
+    const item = {
+      id: "PAY-412", title: "Apple Pay", area: "Payments", priority: "High" as const,
+      parent: null, type: "feature" as const, stakeholders: [],
+      workItems: [{
+        id: "PAY-418", type: "story" as const, title: "Button", state: "todo" as const,
+        assignee: "Sam", sprint: "S1", storyPoints: 3, dueDate: "2026-07-01",
+        customFields: { build: 42 },
+      }],
+      events: [{ id: "e1", item: "PAY-412", type: "CREATE" as const, actor: "M", role: "PM" as const, ts: 1, to: "backlog" as const }],
+    };
+    const rows = itemsToCqlRows([item]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: "PAY-418", item: "PAY-412", type: "story", state: "todo",
+      assignee: "Sam", sprint: "S1", points: 3, due: "2026-07-01",
+      cf: { build: 42 }, tags: [],
+    });
+    void deriveItem; // rows must come from the derived snapshot, asserted via state above
+  });
+});
+
+describe("component field", () => {
+  it("matches component case-insensitively and supports EMPTY", () => {
+    expect(matches("component = checkout", row({ component: "Checkout" }))).toBe(true);
+    expect(matches("component = EMPTY", row({ component: undefined }))).toBe(true);
+    expect(matches("component != EMPTY", row({ component: "Checkout" }))).toBe(true);
+  });
+});

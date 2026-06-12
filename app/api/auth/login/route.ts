@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSession, pruneSessions, sessionCookieOptions, verifyCredentials, SESSION_COOKIE } from "@/server/auth";
-import { clientKey, rateLimited } from "@/server/rate-limit";
+import { rateLimited } from "@/server/rate-limit";
 
 const LoginSchema = z.object({
   email: z.string().min(3).max(255),
@@ -9,10 +9,7 @@ const LoginSchema = z.object({
 });
 
 export async function POST(req: Request): Promise<NextResponse> {
-  // e2e runs log in once per test; the limiter would trip mid-suite (never set in production)
   const e2e = process.env.E2E_TEST === "1";
-  if (!e2e && rateLimited("login:" + clientKey(req), 5, 60_000))
-    return NextResponse.json({ success: false, error: "Too many attempts — try again in a minute." }, { status: 429 });
 
   let body: unknown;
   try { body = await req.json(); } catch {
@@ -21,6 +18,10 @@ export async function POST(req: Request): Promise<NextResponse> {
   const parsed = LoginSchema.safeParse(body);
   if (!parsed.success)
     return NextResponse.json({ success: false, error: "Invalid request body." }, { status: 400 });
+
+  // Rate-limit per email so the bucket can't be bypassed by forging X-Forwarded-For.
+  if (!e2e && rateLimited("login:" + parsed.data.email.toLowerCase(), 5, 60_000))
+    return NextResponse.json({ success: false, error: "Too many attempts — try again in a minute." }, { status: 429 });
 
   const user = await verifyCredentials(parsed.data.email, parsed.data.password);
   // generic message — no user enumeration

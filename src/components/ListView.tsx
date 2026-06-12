@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   deriveItem, legalWiMoves,
   type Item, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
-import { parseCql, runCql, type CqlRow } from "@/lib/cql";
+import { parseCql, runCql, wiToCqlRow, type CqlRow } from "@/lib/cql";
+import { mapCsvToWiDrafts, parseCsv } from "@/lib/csv";
+import { createFilter, deleteFilter, fetchFilters, type SavedFilterInfo } from "@/lib/api";
 import { TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 /* Flat, spreadsheet-style list of every work item across the visible items
@@ -19,24 +21,54 @@ interface ListViewProps {
   items: Item[];
   onMove: (itemId: string, wiId: string, to: WiState) => void;
   onOpen: (itemId: string, wiId: string) => void;
+  onImport: (itemId: string, draft: unknown) => Promise<boolean>;
 }
 
-const COLS = ["id", "title", "item", "type", "state", "assignee", "sprint", "points", "time"] as const;
+const COLS = ["id", "title", "item", "type", "state", "assignee", "sprint", "due", "points", "time"] as const;
 
 function csvEscape(v: string): string {
   return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
 
-export function ListView({ items, onMove, onOpen }: ListViewProps) {
+export function ListView({ items, onMove, onOpen, onImport }: ListViewProps) {
   const [q, setQ] = useState("");
   const [fType, setFType] = useState<"" | WiType>("");
   const [fState, setFState] = useState<"" | WiState>("");
   const [fAssignee, setFAssignee] = useState("");
   const [cql, setCql] = useState("");
+  const [filters, setFilters] = useState<SavedFilterInfo[]>([]);
+  const [filterId, setFilterId] = useState("");
+  const [saveName, setSaveName] = useState("");
+  const [saveShared, setSaveShared] = useState(false);
+  const [filterErr, setFilterErr] = useState<string | null>(null);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+
+  async function onPickCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const { drafts, errors } = mapCsvToWiDrafts(parseCsv(await file.text()), new Set(items.map((i) => i.id)));
+    if (!drafts.length) { setImportMsg(`Nothing to import. ${errors[0] ?? ""}`); return; }
+    setImporting(true);
+    let ok = 0, failed = 0;
+    for (const d of drafts) (await onImport(d.itemId, d.draft)) ? ok++ : failed++;
+    setImporting(false);
+    setImportMsg(`Imported ${ok}${failed ? `, ${failed} failed` : ""}${errors.length ? ` · ${errors.length} row(s) skipped: ${errors[0]}` : ""}`);
+  }
+
+  useEffect(() => {
+    let stale = false;
+    fetchFilters().then((r) => { if (!stale && r.ok) setFilters(r.data.filters); });
+    return () => { stale = true; };
+  }, []);
 
   const all: Row[] = useMemo(
-    () => items.flatMap((it) => deriveItem(it).workItems.map((wi) => ({ itemId: it.id, itemTitle: it.title, wi }))),
-    [items],
+    () => items
+      .filter((it) => showArchived || !it.archivedAt)
+      .flatMap((it) => deriveItem(it).workItems.map((wi) => ({ itemId: it.id, itemTitle: it.title, wi }))),
+    [items, showArchived],
   );
   const assignees = useMemo(
     () => Array.from(new Set(all.map((r) => r.wi.assignee).filter(Boolean))).sort(),
@@ -61,25 +93,19 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
   const rows = (() => {
     if (!cqlParsed?.ok) return basic; // no query, or a parse error (shown inline) — fall back to the basic filters
     const byKey = new Map(basic.map((r) => [r.itemId + ":" + r.wi.id, r]));
-    const cqlRows: CqlRow[] = basic.map((r) => ({
-      id: r.wi.id, title: r.wi.title, item: r.itemId,
-      type: r.wi.type, state: r.wi.state, assignee: r.wi.assignee,
-      sprint: r.wi.sprint, points: r.wi.storyPoints, priority: r.wi.priority,
-      severity: r.wi.severity, phase: r.wi.phase, tags: r.wi.tags || [],
-      parent: r.wi.parentWiId, cf: r.wi.customFields || {},
-    }));
+    const cqlRows: CqlRow[] = basic.map((r) => wiToCqlRow(r.itemId, r.wi));
     return runCql(cqlParsed.query, cqlRows)
       .map((cr) => byKey.get(cr.item + ":" + cr.id)!)
       .filter(Boolean);
   })();
 
   function exportCsv() {
-    const head = ["id", "title", "item", "item_title", "type", "state", "assignee", "sprint", "story_points", "priority", "time_spent_h", "remaining_h", "tags"];
+    const head = ["id", "title", "item", "item_title", "type", "state", "assignee", "sprint", "due_date", "story_points", "priority", "time_spent_h", "remaining_h", "tags"];
     const lines = [head.join(",")];
     for (const r of rows) {
       lines.push([
         r.wi.id, r.wi.title, r.itemId, r.itemTitle, r.wi.type, r.wi.state, r.wi.assignee,
-        r.wi.sprint ?? "", r.wi.storyPoints != null ? String(r.wi.storyPoints) : "",
+        r.wi.sprint ?? "", r.wi.dueDate ?? "", r.wi.storyPoints != null ? String(r.wi.storyPoints) : "",
         r.wi.priority != null ? String(r.wi.priority) : "",
         r.wi.timeSpent != null ? String(r.wi.timeSpent) : "",
         r.wi.remainingEstimate != null ? String(r.wi.remainingEstimate) : "",
@@ -99,7 +125,14 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
     <div className="card" style={{ overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", margin: "14px 18px" }}>
       <div className="card-h">
         <h3>All work items <span className="wi-cc">{rows.length}/{all.length}</span></h3>
-        <button className="act" onClick={exportCsv} disabled={!rows.length}>⤓ CSV</button>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {importMsg && <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>{importMsg}</span>}
+          <label className="act" style={{ cursor: importing ? "wait" : "pointer" }} title="Import work items from CSV (columns: item, title, type, state, assignee, sprint, due_date, component)">
+            ⤒ Import
+            <input type="file" accept=".csv,text/csv" disabled={importing} onChange={(e) => void onPickCsv(e)} style={{ display: "none" }} />
+          </label>
+          <button className="act" onClick={exportCsv} disabled={!rows.length}>⤓ CSV</button>
+        </div>
       </div>
       <div className="card-b" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div className="board-filters" style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 8 }}>
@@ -117,10 +150,48 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
             <option value="">All assignees</option>
             {assignees.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> archived
+          </label>
+        </div>
+        <div className="board-filters" style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 8, alignItems: "center" }}>
+          <select value={filterId} aria-label="Saved filter"
+            onChange={(e) => {
+              setFilterId(e.target.value);
+              const f = filters.find((x) => x.id === e.target.value);
+              if (f) setCql(f.cql);
+            }}>
+            <option value="">Saved filters…</option>
+            {filters.map((f) => <option key={f.id} value={f.id}>{f.name}{f.shared ? " (shared)" : ""}{f.mine ? "" : " — by others"}</option>)}
+          </select>
+          {filterId && filters.find((f) => f.id === filterId)?.mine &&
+            <button className="act" onClick={async () => {
+              const r = await deleteFilter(filterId);
+              if (!r.ok) { setFilterErr(r.error); return; }
+              setFilterErr(null);
+              setFilterId("");
+              const list = await fetchFilters();
+              if (list.ok) setFilters(list.data.filters);
+            }}>✕ Delete filter</button>}
+          <input value={saveName} placeholder="Save CQL as…" aria-label="Filter name"
+            onChange={(e) => setSaveName(e.target.value)} style={{ width: 140 }} />
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+            <input type="checkbox" checked={saveShared} onChange={(e) => setSaveShared(e.target.checked)} /> shared
+          </label>
+          <button className="act" disabled={!saveName.trim() || !cql.trim() || !(parseCql(cql).ok)}
+            onClick={async () => {
+              const r = await createFilter(saveName.trim(), cql.trim(), saveShared);
+              if (!r.ok) { setFilterErr(r.error); return; }
+              setFilterErr(null);
+              setSaveName("");
+              const list = await fetchFilters();
+              if (list.ok) { setFilters(list.data.filters); setFilterId(r.data.id); }
+            }}>＋ Save filter</button>
+          {filterErr && <span className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11 }}>⚠ {filterErr}</span>}
         </div>
         <div style={{ paddingBottom: 8 }}>
           <input value={cql} aria-label="CQL query" className="mono" style={{ width: "100%" }}
-            placeholder='CQL: state = todo AND points > 2 ORDER BY points DESC  ·  fields: id title item type state assignee sprint points priority severity phase tag parent cf.<key>'
+            placeholder='CQL: state = todo AND points > 2 ORDER BY points DESC  ·  fields: id title item type state assignee sprint points priority severity phase tag parent due component cf.<key>'
             onChange={(e) => setCql(e.target.value)} />
           {cqlParsed && !cqlParsed.ok &&
             <div className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11, paddingTop: 4 }}>⚠ {cqlParsed.error}</div>}
@@ -163,6 +234,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
                     </td>
                     <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{r.wi.assignee || <span style={{ color: "var(--text-3)" }}>—</span>}</td>
                     <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{r.wi.sprint ?? ""}</td>
+                    <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{r.wi.dueDate ?? ""}</td>
                     <td className="mono" style={{ padding: "4px 8px", textAlign: "right" }}>{r.wi.storyPoints ?? ""}</td>
                     <td className="mono" style={{ padding: "4px 8px", whiteSpace: "nowrap", color: "var(--text-3)" }}>
                       {r.wi.timeSpent != null ? `${r.wi.timeSpent}h` : ""}{r.wi.remainingEstimate != null ? ` / ${r.wi.remainingEstimate}h left` : ""}

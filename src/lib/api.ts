@@ -13,9 +13,12 @@ export type ApiResult<T> =
 async function call<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   let res: Response;
   try {
+    // FormData bodies must NOT get a JSON content-type — the browser sets the
+    // multipart boundary itself.
+    const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
     res = await fetch(path, {
       ...init,
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+      headers: isForm ? init?.headers : { "Content-Type": "application/json", ...(init?.headers || {}) },
     });
   } catch {
     return { ok: false, status: 0, error: "Network error — is the server running?" };
@@ -152,6 +155,154 @@ export interface SprintInfo {
 
 export const fetchSprints = (teamId: string) =>
   call<{ sprints: SprintInfo[] }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`);
+
+export const fetchAllSprints = () =>
+  call<{ sprints: SprintInfo[] }>("/api/sprints");
+
+/* ---------- Label + component registries (feed pickers; WIs store plain strings) ---------- */
+export interface LabelInfo { id: string; name: string; }
+export interface ComponentInfo { id: string; projectId: string; name: string; }
+
+export const fetchLabels = () => call<{ labels: LabelInfo[] }>("/api/labels");
+export const createLabel = (name: string) =>
+  call<{ id: string }>("/api/labels", { method: "POST", body: JSON.stringify({ name }) });
+export const deleteLabel = (id: string) =>
+  call<Record<string, never>>(`/api/labels/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const fetchComponents = (projectId: string) =>
+  call<{ components: ComponentInfo[] }>(`/api/components?projectId=${encodeURIComponent(projectId)}`);
+export const createComponent = (projectId: string, name: string) =>
+  call<{ id: string }>("/api/components", { method: "POST", body: JSON.stringify({ projectId, name }) });
+export const deleteComponent = (id: string) =>
+  call<Record<string, never>>(`/api/components/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/* ---------- Versions / releases (membership = items.fix_version column) ---------- */
+export type VersionState = "unreleased" | "released" | "archived";
+export interface VersionInfo {
+  id: string; projectId: string; name: string;
+  releaseDate: string | null; state: VersionState; itemCount: number;
+}
+
+export const fetchVersions = (projectId: string) =>
+  call<{ versions: VersionInfo[] }>(`/api/versions?projectId=${encodeURIComponent(projectId)}`);
+
+export const createVersion = (projectId: string, name: string, releaseDate: string | null = null) =>
+  call<{ id: string }>("/api/versions", {
+    method: "POST", body: JSON.stringify({ projectId, name, releaseDate }),
+  });
+
+export const updateVersion = (id: string, patch: { name?: string; releaseDate?: string | null; state?: VersionState }) =>
+  call<Record<string, never>>(`/api/versions/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify(patch),
+  });
+
+export const deleteVersion = (id: string) =>
+  call<Record<string, never>>(`/api/versions/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const setItemArchived = (itemId: string, archived: boolean) =>
+  call<Record<string, never>>(`/api/items/${encodeURIComponent(itemId)}/archive`, {
+    method: "PATCH", body: JSON.stringify({ archived }),
+  });
+
+export const assignItemVersion = (itemId: string, versionId: string | null) =>
+  call<Record<string, never>>(`/api/items/${encodeURIComponent(itemId)}/version`, {
+    method: "PATCH", body: JSON.stringify({ versionId }),
+  });
+
+/* ---------- Attachments (metadata; bytes served via /api/attachments/:id) ---------- */
+export interface AttachmentInfo {
+  id: string; itemId: string; wiId: string | null;
+  filename: string; mime: string; size: number; uploader: string;
+}
+
+export const fetchAttachments = (itemId: string, wiId?: string) =>
+  call<{ attachments: AttachmentInfo[] }>(
+    `/api/items/${encodeURIComponent(itemId)}/attachments${wiId ? `?wiId=${encodeURIComponent(wiId)}` : ""}`);
+
+export const uploadAttachment = (itemId: string, file: File, wiId?: string) => {
+  const form = new FormData();
+  form.append("file", file);
+  if (wiId) form.append("wiId", wiId);
+  return call<{ id: string }>(`/api/items/${encodeURIComponent(itemId)}/attachments`, {
+    method: "POST", body: form, // call() skips the JSON content-type for FormData
+  });
+};
+
+export const deleteAttachment = (id: string) =>
+  call<Record<string, never>>(`/api/attachments/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/* ---------- Notification prefs (email opt-in; channel needs SMTP_URL) ---------- */
+export const fetchNotificationPrefs = () =>
+  call<{ emailEnabled: boolean; channelActive: boolean }>("/api/me/notification-prefs");
+export const putNotificationPrefs = (emailEnabled: boolean) =>
+  call<Record<string, never>>("/api/me/notification-prefs", { method: "PUT", body: JSON.stringify({ emailEnabled }) });
+
+/* ---------- Dashboard gadget prefs (ordered kinds; null = default layout) ---------- */
+export const fetchDashboardPrefs = () =>
+  call<{ gadgets: string[] | null }>("/api/dashboard");
+export const saveDashboardPrefs = (gadgets: string[]) =>
+  call<Record<string, never>>("/api/dashboard", { method: "PUT", body: JSON.stringify({ gadgets }) });
+
+/* ---------- Goals (membership stored; progress derived client-side) ---------- */
+export type GoalStatus = "active" | "done" | "cancelled";
+export interface GoalInfo {
+  id: string; title: string; targetDate: string | null; status: GoalStatus; itemIds: string[];
+}
+
+export const fetchGoals = () => call<{ goals: GoalInfo[] }>("/api/goals");
+export const createGoal = (title: string, targetDate: string | null) =>
+  call<{ id: string }>("/api/goals", { method: "POST", body: JSON.stringify({ title, targetDate }) });
+export const patchGoal = (id: string, patch: { status: GoalStatus } | { op: "add" | "remove"; itemId: string }) =>
+  call<Record<string, never>>(`/api/goals/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const deleteGoal = (id: string) =>
+  call<Record<string, never>>(`/api/goals/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/* ---------- Global audit log (PM only; seq-keyed pagination, newest first) ---------- */
+export interface AuditEventInfo {
+  seq: number; itemId: string; type: string; actor: string; role: string; ts: number;
+}
+
+export const fetchAudit = (opts: { actor?: string; type?: string; item?: string; beforeSeq?: number; limit?: number } = {}) => {
+  const p = new URLSearchParams();
+  if (opts.actor) p.set("actor", opts.actor);
+  if (opts.type) p.set("type", opts.type);
+  if (opts.item) p.set("item", opts.item);
+  if (opts.beforeSeq != null) p.set("beforeSeq", String(opts.beforeSeq));
+  if (opts.limit != null) p.set("limit", String(opts.limit));
+  const qs = p.toString();
+  return call<{ events: AuditEventInfo[] }>(`/api/audit${qs ? `?${qs}` : ""}`);
+};
+
+/* ---------- Custom-field definitions (values travel in WI events) ---------- */
+export type FieldKind = "text" | "number" | "date" | "select";
+export interface FieldDefInfo {
+  id: string; scope: string; key: string; name: string; kind: FieldKind; options: string[] | null;
+}
+
+export const fetchFieldDefs = (projectId: string | null) =>
+  call<{ fields: FieldDefInfo[] }>(`/api/fields${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`);
+
+export const createFieldDef = (def: { projectId: string | null; key: string; name: string; kind: FieldKind; options?: string[] }) =>
+  call<{ id: string }>("/api/fields", { method: "POST", body: JSON.stringify(def) });
+
+export const deleteFieldDef = (id: string) =>
+  call<Record<string, never>>(`/api/fields/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/* ---------- Saved filters (named CQL queries; shared = visible to everyone) ---------- */
+export interface SavedFilterInfo {
+  id: string; name: string; cql: string; shared: boolean; mine: boolean;
+}
+
+export const fetchFilters = () =>
+  call<{ filters: SavedFilterInfo[] }>("/api/filters");
+
+export const createFilter = (name: string, cql: string, shared: boolean) =>
+  call<{ id: string }>("/api/filters", {
+    method: "POST", body: JSON.stringify({ name, cql, shared }),
+  });
+
+export const deleteFilter = (id: string) =>
+  call<Record<string, never>>(`/api/filters/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export const createSprint = (teamId: string, name: string, start: string | null = null, end: string | null = null) =>
   call<{ id: string }>(`/api/teams/${encodeURIComponent(teamId)}/sprints`, {

@@ -545,3 +545,101 @@ describe("custom fields", () => {
     expect(updateWorkItem(item, snap, "PAY-418", { customFields: { a: "v".repeat(2001) } }, PM, "PM").ok).toBe(false);
   });
 });
+
+/* ---------------- due date (optional ISO date, drives the calendar view) ---------------- */
+
+describe("due date", () => {
+  it("sets, changes, and clears dueDate via WI_UPDATE", () => {
+    let item = makeItem();
+    const set = updateWorkItem(item, deriveItem(item), "PAY-418", { dueDate: "2026-07-01" }, PM, "PM");
+    expect(set.ok).toBe(true);
+    if (!set.ok) return;
+    item = withEvent(item, set.event);
+    expect(deriveItem(item).workItems.find((w) => w.id === "PAY-418")!.dueDate).toBe("2026-07-01");
+
+    const clear = updateWorkItem(item, deriveItem(item), "PAY-418", { dueDate: undefined }, PM, "PM");
+    expect(clear.ok).toBe(true);
+    if (!clear.ok) return;
+    expect(clear.event.wi!.dueDate).toBeNull(); // clears travel as null (JSON-safe)
+    item = withEvent(item, clear.event);
+    expect(deriveItem(item).workItems.find((w) => w.id === "PAY-418")!.dueDate).toBeUndefined();
+  });
+
+  it("rejects malformed or impossible dates", () => {
+    const item = makeItem();
+    const snap = deriveItem(item);
+    expect(updateWorkItem(item, snap, "PAY-418", { dueDate: "tomorrow" }, PM, "PM").ok).toBe(false);
+    expect(updateWorkItem(item, snap, "PAY-418", { dueDate: "2026-13-01" }, PM, "PM").ok).toBe(false);
+    expect(updateWorkItem(item, snap, "PAY-418", { dueDate: "2026-02-30" }, PM, "PM").ok).toBe(false);
+  });
+
+  it("a no-op dueDate patch is rejected as no change", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "T", state: "todo", assignee: "", dueDate: "2026-07-01" },
+    ];
+    const item = makeItem(wis);
+    expect(updateWorkItem(item, deriveItem(item), "PAY-418", { dueDate: "2026-07-01" }, PM, "PM").ok).toBe(false);
+  });
+
+  it("WI_CREATE carries dueDate when supplied", () => {
+    const item = makeItem();
+    const r = createWorkItem(item, deriveItem(item), { type: "task", title: "t", assignee: "x", dueDate: "2026-08-15" }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const snap = deriveItem(withEvent(item, r.event));
+    expect(snap.workItems.find((w) => w.id === r.event.wiId)!.dueDate).toBe("2026-08-15");
+  });
+
+  it("createWorkItem rejects a malformed dueDate", () => {
+    const item = makeItem();
+    expect(createWorkItem(item, deriveItem(item), { type: "task", title: "t", assignee: "x", dueDate: "soon" }, PM, "PM").ok).toBe(false);
+  });
+});
+
+/* ---------------- component (per-project registry feeds the picker; engine stores the string) ---------------- */
+
+describe("component field", () => {
+  it("sets, changes, and clears component via WI_UPDATE (trimmed)", () => {
+    let item = makeItem();
+    const set = updateWorkItem(item, deriveItem(item), "PAY-418", { component: "  Checkout API " }, PM, "PM");
+    expect(set.ok).toBe(true);
+    if (!set.ok) return;
+    item = withEvent(item, set.event);
+    expect(deriveItem(item).workItems.find((w) => w.id === "PAY-418")!.component).toBe("Checkout API");
+
+    const clear = updateWorkItem(item, deriveItem(item), "PAY-418", { component: undefined }, PM, "PM");
+    expect(clear.ok).toBe(true);
+    if (!clear.ok) return;
+    expect(clear.event.wi!.component).toBeNull();
+    item = withEvent(item, clear.event);
+    expect(deriveItem(item).workItems.find((w) => w.id === "PAY-418")!.component).toBeUndefined();
+  });
+
+  it("a no-op component patch is rejected as no change", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "T", state: "todo", assignee: "", component: "Checkout API" },
+    ];
+    const item = makeItem(wis);
+    expect(updateWorkItem(item, deriveItem(item), "PAY-418", { component: "Checkout API" }, PM, "PM").ok).toBe(false);
+  });
+
+  it("WI_CREATE carries component when supplied", () => {
+    const item = makeItem();
+    const r = createWorkItem(item, deriveItem(item), { type: "task", title: "t", assignee: "x", component: "Billing" }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const snap = deriveItem(withEvent(item, r.event));
+    expect(snap.workItems.find((w) => w.id === r.event.wiId)!.component).toBe("Billing");
+  });
+});
+
+describe("tags on create (intake forms label submissions)", () => {
+  it("createWorkItem normalizes and carries tags", () => {
+    const item = makeItem();
+    const r = createWorkItem(item, deriveItem(item), { type: "task", title: "t", assignee: "", tags: [" intake ", "intake", "web"] }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const w = deriveItem(withEvent(item, r.event)).workItems.find((x) => x.id === r.event.wiId)!;
+    expect(w.tags).toEqual(["intake", "web"]);
+  });
+});

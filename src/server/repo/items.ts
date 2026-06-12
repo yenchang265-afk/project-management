@@ -9,6 +9,8 @@ import { runCommand, type Command, type CommandResult } from "../commands";
 interface ItemRow extends RowDataPacket {
   id: string; title: string; area: string; priority: Item["priority"];
   parent: string | null; type: Item["type"]; project_id: string | null;
+  fix_version: string | null;
+  archived_at: Date | string | null;
   stakeholders: unknown; work_items: unknown; plan: unknown;
 }
 interface EventRow extends RowDataPacket {
@@ -27,6 +29,8 @@ function rowToItem(r: ItemRow, events: PdlcEvent[]): Item {
   return {
     id: r.id, title: r.title, area: r.area, priority: r.priority, parent: r.parent, type: r.type,
     project: r.project_id,
+    fixVersion: r.fix_version ?? null,
+    archivedAt: r.archived_at == null ? null : new Date(r.archived_at).toISOString(),
     stakeholders: fromJson(r.stakeholders),
     workItems: fromJson(r.work_items),
     ...(r.plan != null ? { plan: fromJson<Item["plan"]>(r.plan) } : {}),
@@ -60,6 +64,15 @@ export async function getItem(id: string, conn?: PoolConnection): Promise<ItemWi
   return { item: rowToItem(itemRows[0], events), version: events.length };
 }
 
+/** Archive/unarchive an item — a visibility flag, never an event. */
+export async function setItemArchived(itemId: string, archived: boolean): Promise<boolean> {
+  const [r] = await pool().query<import("mysql2/promise").ResultSetHeader>(
+    archived
+      ? "UPDATE items SET archived_at = CURRENT_TIMESTAMP WHERE id = ?"
+      : "UPDATE items SET archived_at = NULL WHERE id = ?", [itemId]);
+  return r.affectedRows > 0;
+}
+
 export type AppendOutcome =
   | { status: "ok"; event: PdlcEvent; version: number }
   | { status: "stale"; item: Item; version: number }
@@ -82,6 +95,27 @@ export async function applyCommand(
     const result = runCommand(loaded.item, cmd, actor, role);
     if (!result.ok) return { status: "rejected" as const, result };
 
+    const r = eventToRow(result.event);
+    await conn.query(
+      "INSERT INTO events (id, item_id, type, actor, role, ts, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [r.id, r.item_id, r.type, r.actor, r.role, r.ts, r.payload]);
+    return { status: "ok" as const, event: result.event, version: loaded.version + 1 };
+  });
+}
+
+/** System append (intake forms): like applyCommand, but the server reads the
+ *  current version itself under the row lock — public submitters can't know
+ *  (and must not learn) an item's version. */
+export async function applyCommandAsSystem(
+  itemId: string, cmd: Command, actor: string, role: Role
+): Promise<AppendOutcome> {
+  return withTransaction(async (conn) => {
+    const [lock] = await conn.query<ItemRow[]>("SELECT id FROM items WHERE id = ? FOR UPDATE", [itemId]);
+    if (!lock[0]) return { status: "not_found" as const };
+    const loaded = await getItem(itemId, conn);
+    if (!loaded) return { status: "not_found" as const };
+    const result = runCommand(loaded.item, cmd, actor, role);
+    if (!result.ok) return { status: "rejected" as const, result };
     const r = eventToRow(result.event);
     await conn.query(
       "INSERT INTO events (id, item_id, type, actor, role, ts, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",

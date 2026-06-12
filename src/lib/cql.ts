@@ -12,6 +12,8 @@
      value   := bareword | "quoted string" | number | EMPTY
    ========================================================================= */
 
+import { deriveItem, type Item, type WorkItem } from "./engine";
+
 /** Flat row shape the queries run against (one row per work item). */
 export interface CqlRow {
   id: string;
@@ -27,12 +29,30 @@ export interface CqlRow {
   phase?: string;
   tags: string[];
   parent?: string;
+  due?: string; // ISO YYYY-MM-DD — range ops compare lexicographically
+  component?: string;
   cf: Record<string, string | number>;
+}
+
+/** Canonical WorkItem → CqlRow projection (shared by the list view and /api/search). */
+export function wiToCqlRow(itemId: string, w: WorkItem): CqlRow {
+  return {
+    id: w.id, title: w.title, item: itemId,
+    type: w.type, state: w.state, assignee: w.assignee,
+    sprint: w.sprint, points: w.storyPoints, priority: w.priority,
+    severity: w.severity, phase: w.phase, tags: w.tags || [],
+    parent: w.parentWiId, due: w.dueDate, component: w.component, cf: w.customFields || {},
+  };
+}
+
+/** One row per DERIVED work item across the given items. */
+export function itemsToCqlRows(items: Item[]): CqlRow[] {
+  return items.flatMap((it) => deriveItem(it).workItems.map((w) => wiToCqlRow(it.id, w)));
 }
 
 const FIELDS = new Set([
   "id", "title", "item", "type", "state", "assignee", "sprint",
-  "points", "priority", "severity", "phase", "tag", "parent",
+  "points", "priority", "severity", "phase", "tag", "parent", "due", "component",
 ]);
 
 type Op = "=" | "!=" | "~" | "!~" | ">" | ">=" | "<" | "<=";
@@ -234,6 +254,8 @@ function fieldValue(row: CqlRow, field: string): string | number | string[] | un
     case "phase": return row.phase;
     case "tag": return row.tags;
     case "parent": return row.parent;
+    case "due": return row.due;
+    case "component": return row.component;
     default: return undefined;
   }
 }
@@ -270,13 +292,21 @@ function compare(actual: string | number | string[] | undefined, op: Op, expecte
     }
     case "!~": return !compare(actual, "~", expected);
     case ">": case ">=": case "<": case "<=": {
-      if (expected.kind !== "num" || isUnset(actual) || Array.isArray(actual)) return false;
-      const a = typeof actual === "number" ? actual : Number(actual);
-      if (!Number.isFinite(a)) return false;
-      if (op === ">") return a > expected.v;
-      if (op === ">=") return a >= expected.v;
-      if (op === "<") return a < expected.v;
-      return a <= expected.v;
+      if (expected.kind === "empty" || isUnset(actual) || Array.isArray(actual)) return false;
+      if (expected.kind === "num") {
+        const a = typeof actual === "number" ? actual : Number(actual);
+        if (!Number.isFinite(a)) return false;
+        if (op === ">") return a > expected.v;
+        if (op === ">=") return a >= expected.v;
+        if (op === "<") return a < expected.v;
+        return a <= expected.v;
+      }
+      // string values (e.g. ISO dates): case-insensitive lexicographic compare
+      const a = String(actual).toLowerCase(), e = expected.v.toLowerCase();
+      if (op === ">") return a > e;
+      if (op === ">=") return a >= e;
+      if (op === "<") return a < e;
+      return a <= e;
     }
   }
 }

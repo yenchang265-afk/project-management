@@ -9,6 +9,10 @@ import {
   type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import { timeAgo } from "@/lib/format";
+import {
+  deleteAttachment, fetchAttachments, fetchComponents, fetchFieldDefs, fetchLabels,
+  uploadAttachment, type AttachmentInfo, type FieldDefInfo,
+} from "@/lib/api";
 import { Avatar, TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 const WI_TYPE_OPTS: WiType[] = ["story", "task", "bug"];
@@ -49,6 +53,54 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
   const [logNote, setLogNote] = useState("");
   const [cfKey, setCfKey] = useState("");
   const [cfVal, setCfVal] = useState("");
+  const [labelNames, setLabelNames] = useState<string[]>([]);
+  const [componentNames, setComponentNames] = useState<string[]>([]);
+  const [fieldDefs, setFieldDefs] = useState<FieldDefInfo[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([]);
+  const [attErr, setAttErr] = useState<string | null>(null);
+  const [attBusy, setAttBusy] = useState(false);
+
+  async function reloadAttachments() {
+    const r = await fetchAttachments(item.id, wiId);
+    if (r.ok) setAttachments(r.data.attachments);
+  }
+
+  useEffect(() => {
+    let stale = false;
+    fetchAttachments(item.id, wiId).then((r) => { if (!stale && r.ok) setAttachments(r.data.attachments); });
+    return () => { stale = true; };
+  }, [item.id, wiId]);
+
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    setAttBusy(true);
+    const r = await uploadAttachment(item.id, file, wiId);
+    setAttBusy(false);
+    if (!r.ok) { setAttErr(r.error); return; }
+    setAttErr(null);
+    void reloadAttachments();
+  }
+
+  async function onDeleteAttachment(id: string) {
+    const r = await deleteAttachment(id);
+    if (!r.ok) { setAttErr(r.error); return; }
+    setAttErr(null);
+    void reloadAttachments();
+  }
+
+  // registries feed pickers only — work items keep storing plain strings
+  useEffect(() => {
+    let stale = false;
+    fetchLabels().then((r) => { if (!stale && r.ok) setLabelNames(r.data.labels.map((l) => l.name)); });
+    if (item.project)
+      fetchComponents(item.project).then((r) => {
+        if (!stale && r.ok) setComponentNames(r.data.components.map((c) => c.name));
+      });
+    fetchFieldDefs(item.project ?? null).then((r) => { if (!stale && r.ok) setFieldDefs(r.data.fields); });
+    return () => { stale = true; };
+  }, [item.project]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -221,6 +273,19 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 onChange={(e) => setSprintBuf(e.target.value)} onBlur={commitSprint}
                 onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
             </label>
+            <label className="wi-field"><span>Component</span>
+              {/* options come from the project registry; an off-registry value stays selectable */}
+              <select value={w.component ?? ""} onChange={(e) => onUpdate(wiId, { component: e.target.value || undefined })}>
+                <option value="">—</option>
+                {w.component && !componentNames.includes(w.component) && <option value={w.component}>{w.component}</option>}
+                {componentNames.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className="wi-field"><span>Due date</span>
+              {/* native date input emits "" or a valid YYYY-MM-DD — matches the engine's isIsoDate */}
+              <input type="date" value={w.dueDate ?? ""}
+                onChange={(e) => onUpdate(wiId, { dueDate: e.target.value || undefined })} />
+            </label>
             <label className="wi-field"><span>Parent</span>
               {/* one level: only non-subtask WIs are eligible; a WI with subtasks can't become one */}
               <select value={w.parentWiId ?? ""} disabled={subtasks.length > 0}
@@ -255,16 +320,53 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
           </label>
 
           <div className="wi-field block"><span>Tags</span>
+            {/* managed label registry feeds autocomplete; free-form tags still allowed */}
+            <datalist id="wi-label-options">
+              {labelNames.map((l) => <option key={l} value={l} />)}
+            </datalist>
             <div className="wi-tags">
               {tags.map((t) => (
                 <span className="wi-tag" key={t}>{t}<button title="Remove tag" onClick={() => removeTag(t)}>×</button></span>
               ))}
               <input className="wi-tag-input" value={tagInput} placeholder="add tag…" maxLength={40}
+                list="wi-label-options"
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); } }}
                 onBlur={() => { if (tagInput.trim()) addTag(); }} />
             </div>
           </div>
+
+          {fieldDefs.length > 0 &&
+            <div className="wi-field block"><span>Fields</span>
+              {/* defined custom fields: typed inputs writing per-key deltas into customFields */}
+              <div className="wi-grid">
+                {fieldDefs.map((d) => {
+                  const cur = customFields[d.key];
+                  const commit = (raw: string) => {
+                    if (raw === "") { if (cur !== undefined) onUpdate(wiId, { customFields: { [d.key]: null } as unknown as Record<string, string> }); return; }
+                    const v = d.kind === "number" ? Number(raw) : raw;
+                    if (d.kind === "number" && !Number.isFinite(v as number)) return;
+                    if (v !== cur) onUpdate(wiId, { customFields: { [d.key]: v } });
+                  };
+                  return (
+                    <label className="wi-field" key={d.id}><span>{d.name}{d.scope ? "" : " ⦿"}</span>
+                      {d.kind === "select" ? (
+                        <select value={cur != null ? String(cur) : ""} onChange={(e) => commit(e.target.value)}>
+                          <option value="">—</option>
+                          {cur != null && !(d.options || []).includes(String(cur)) && <option value={String(cur)}>{String(cur)}</option>}
+                          {(d.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : (
+                        <input type={d.kind === "number" ? "number" : d.kind === "date" ? "date" : "text"}
+                          defaultValue={cur != null ? String(cur) : ""} placeholder="—" maxLength={2000}
+                          onBlur={(e) => commit(e.target.value.trim())}
+                          onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>}
 
           <div className="wi-field block"><span>Custom fields <span className="wi-cc">{Object.keys(customFields).length}</span></span>
             <div className="wi-links">
@@ -285,6 +387,27 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 onChange={(e) => setCfVal(e.target.value)} style={{ flex: 1 }} />
               <button className="wi-act ok" title="Set field" onClick={addCustomField} disabled={!cfKey.trim() || !cfVal.trim()}>＋</button>
             </div>
+          </div>
+
+          <div className="wi-field block"><span>Attachments <span className="wi-cc">{attachments.length}</span></span>
+            <div className="wi-links">
+              {attachments.length === 0 && <div className="wi-empty">No attachments.</div>}
+              {attachments.map((a) => (
+                <div className="wi-link-row" key={a.id}>
+                  <a className="wi-link-title" href={`/api/attachments/${encodeURIComponent(a.id)}`}
+                    title={`${a.filename} · ${(a.size / 1024).toFixed(1)} KB · ${a.uploader}`}>
+                    📎 {a.filename}
+                  </a>
+                  <span className="mono" style={{ color: "var(--text-3)", fontSize: 10 }}>{(a.size / 1024).toFixed(1)} KB</span>
+                  <button className="wi-act del" title={`Delete ${a.filename}`} onClick={() => void onDeleteAttachment(a.id)}>✕</button>
+                </div>
+              ))}
+            </div>
+            <div className="wi-link-add">
+              <input type="file" aria-label="Upload attachment" disabled={attBusy} onChange={(e) => void onPickFile(e)} />
+              {attBusy && <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>uploading…</span>}
+            </div>
+            {attErr && <div className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11, paddingTop: 4 }}>⚠ {attErr}</div>}
           </div>
 
           <div className="wi-field block"><span>Links <span className="wi-cc">{links.length + incoming.length}</span></span>

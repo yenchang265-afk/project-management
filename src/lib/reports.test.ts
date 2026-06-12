@@ -393,3 +393,103 @@ describe("burnup", () => {
     expect(last.total).toBe(6);
   });
 });
+
+/* =================== sprint report =================== */
+
+import { sprintReport, createdVsResolved } from "./reports";
+
+describe("sprintReport", () => {
+  it("splits a sprint's ever-members into completed / open / spilled", () => {
+    const item = makeItem("A", [
+      create("A", T0, "A-100", { type: "story", title: "done one", state: "todo", assignee: "", storyPoints: 3, sprint: "S1" }),
+      create("A", T0 + H, "A-101", { type: "story", title: "open one", state: "todo", assignee: "", storyPoints: 2, sprint: "S1" }),
+      create("A", T0 + 2 * H, "A-102", { type: "story", title: "moved out", state: "todo", assignee: "", storyPoints: 5, sprint: "S1" }),
+      create("A", T0 + 3 * H, "A-103", { type: "story", title: "never in", state: "todo", assignee: "", sprint: "S2" }),
+      update("A", T0 + 4 * H, "A-100", { state: "done" }),
+      update("A", T0 + 5 * H, "A-102", { sprint: "S2" }),
+    ]);
+    const r = sprintReport([item], "S1");
+    expect(r.completed.map((w) => w.wiId)).toEqual(["A-100"]);
+    expect(r.open.map((w) => w.wiId)).toEqual(["A-101"]);
+    expect(r.spilled.map((w) => w.wiId)).toEqual(["A-102"]);
+    expect(r.committedPoints).toBe(10); // 3 + 2 + 5 — everything ever in S1
+    expect(r.completedPoints).toBe(3);
+  });
+
+  it("a deleted WI that was in the sprint counts as spilled", () => {
+    const item = makeItem("A", [
+      create("A", T0, "A-100", { type: "task", title: "doomed", state: "todo", assignee: "", storyPoints: 1, sprint: "S1" }),
+      del("A", T0 + H, "A-100"),
+    ]);
+    const r = sprintReport([item], "S1");
+    expect(r.spilled.map((w) => w.wiId)).toEqual(["A-100"]);
+    expect(r.completed).toEqual([]);
+    expect(r.open).toEqual([]);
+  });
+});
+
+/* =================== created vs resolved =================== */
+
+describe("createdVsResolved", () => {
+  it("samples cumulative created and currently-done counts over the event span", () => {
+    const item = makeItem("A", [
+      create("A", T0, "A-100", { type: "story", title: "a", state: "todo", assignee: "" }),
+      create("A", T0 + H, "A-101", { type: "story", title: "b", state: "todo", assignee: "" }),
+      update("A", T0 + 2 * H, "A-100", { state: "done" }),
+      update("A", T0 + 3 * H, "A-101", { state: "done" }),
+      update("A", T0 + 4 * H, "A-101", { state: "in_progress" }), // reopen drops resolved
+    ]);
+    const pts = createdVsResolved([item], 100); // enough buckets → one sample per event ts
+    expect(pts.map((p) => [p.created, p.resolved])).toEqual([
+      [1, 0], [2, 0], [2, 1], [2, 2], [2, 1],
+    ]);
+  });
+
+  it("a deleted WI leaves both series (net counts)", () => {
+    const item = makeItem("A", [
+      create("A", T0, "A-100", { type: "task", title: "a", state: "todo", assignee: "" }),
+      del("A", T0 + H, "A-100"),
+    ]);
+    const pts = createdVsResolved([item], 100);
+    expect(pts.map((p) => [p.created, p.resolved])).toEqual([[1, 0], [0, 0]]);
+  });
+});
+
+/* =================== team capacity (plans-lite) =================== */
+
+import { teamCapacity } from "./reports";
+
+describe("teamCapacity", () => {
+  it("committed = points in active sprints; velocityAvg = mean done points of closed sprints", () => {
+    const item = makeItem("A", [
+      // closed sprints history: S1 done 5, S2 done 3
+      create("A", T0, "A-1", { type: "story", title: "a", state: "done", assignee: "", storyPoints: 5, sprint: "S1" }),
+      create("A", T0 + H, "A-2", { type: "story", title: "b", state: "done", assignee: "", storyPoints: 3, sprint: "S2" }),
+      // active sprint S3: 4 + 2 committed
+      create("A", T0 + 2 * H, "A-3", { type: "story", title: "c", state: "todo", assignee: "", storyPoints: 4, sprint: "S3" }),
+      create("A", T0 + 3 * H, "A-4", { type: "task", title: "d", state: "in_progress", assignee: "", storyPoints: 2, sprint: "S3" }),
+    ]);
+    const cap = teamCapacity([item], ["S3"], ["S1", "S2"]);
+    expect(cap.committed).toBe(6);
+    expect(cap.velocityAvg).toBe(4); // (5 + 3) / 2
+    expect(cap.ratio).toBeCloseTo(1.5);
+  });
+
+  it("no closed history → velocityAvg 0 and ratio null", () => {
+    const item = makeItem("A", [
+      create("A", T0, "A-1", { type: "story", title: "a", state: "todo", assignee: "", storyPoints: 4, sprint: "S1" }),
+    ]);
+    const cap = teamCapacity([item], ["S1"], []);
+    expect(cap).toEqual({ committed: 4, velocityAvg: 0, ratio: null });
+  });
+});
+
+describe("teamCapacity — moved-out work no longer counts as committed", () => {
+  it("uses current sprint membership, not ever-membership", () => {
+    const item = makeItem("A", [
+      create("A", T0, "A-1", { type: "story", title: "a", state: "todo", assignee: "", storyPoints: 4, sprint: "S1" }),
+      update("A", T0 + H, "A-1", { sprint: "S2" }), // moved out of the active sprint
+    ]);
+    expect(teamCapacity([item], ["S1"], []).committed).toBe(0);
+  });
+});

@@ -45,6 +45,15 @@ export async function listSprints(teamId: string): Promise<SprintInfo[]> {
   return rows.map(toInfo);
 }
 
+/** All sprints across teams — feeds the calendar view (read-only). */
+export async function listAllSprints(): Promise<SprintInfo[]> {
+  const [rows] = await pool().query<RowDataPacket[]>(
+    `SELECT id, team_id, name, start_date, end_date, state
+       FROM sprints
+      ORDER BY start_date IS NULL, start_date, created_at, name`);
+  return rows.map(toInfo);
+}
+
 export async function createSprint(
   teamId: string, name: string, start: string | null, end: string | null,
 ): Promise<WriteResult> {

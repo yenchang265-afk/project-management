@@ -21,7 +21,7 @@ const itemLinkKinds = ITEM_LINK_KINDS as [typeof ITEM_LINK_KINDS[number], ...typ
 
 /* JSON can't carry undefined, so "clear this field" travels as null;
    toPatch() converts null → present-but-undefined, which the engine reads as a clear. */
-const WiPatchSchema = z.object({
+export const WiPatchSchema = z.object({
   title: z.string().max(500).optional(),
   type: z.enum(wiTypes).optional(),
   state: z.enum(wiStates).optional(),
@@ -35,6 +35,8 @@ const WiPatchSchema = z.object({
   phase: z.enum(wiPhases).nullable().optional(),
   sprint: z.string().max(64).nullable().optional(),
   parentWiId: z.string().max(32).nullable().optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Due date must be YYYY-MM-DD.").nullable().optional(),
+  component: z.string().max(80).nullable().optional(),
   originalEstimate: z.number().min(0).max(100_000).nullable().optional(),
   remainingEstimate: z.number().min(0).max(100_000).nullable().optional(),
   // per-key delta: null deletes that key (top-level toPatch() null-handling must NOT apply)
@@ -56,6 +58,9 @@ export const CommandSchema = z.discriminatedUnion("kind", [
       type: z.enum(wiTypes), title: z.string().max(500), assignee: z.string().max(128),
       state: z.enum(wiStates).optional(), phase: z.enum(wiPhases).optional(), sprint: z.string().max(64).optional(),
       parentWiId: z.string().max(32).optional(),
+      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Due date must be YYYY-MM-DD.").optional(),
+      component: z.string().max(80).optional(),
+      tags: z.array(z.string().max(40)).max(50).optional(),
     }).strict(),
   }).strict(),
   z.object({ kind: z.literal("wiUpdate"), wiId: z.string().max(32), patch: WiPatchSchema }).strict(),

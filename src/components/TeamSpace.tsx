@@ -5,7 +5,7 @@ import { deriveItem, wiBlockedBy, type Item, type WiState, type WorkItem } from 
 import { createSprint, fetchSprints, type AnnouncementInfo, type OrgInfo, type ProjectInfo, type SprintInfo, type TeamInfo, type TeamMemberInfo } from "@/lib/api";
 import { mergeSprintNames, pickDefaultSprint } from "@/lib/sprints";
 import { Avatar, TypeBox, WI_STATES } from "./badges";
-import { BurndownCard, BurnupCard, ControlChartCard, VelocityCard } from "./Reports";
+import { BurndownCard, BurnupCard, ControlChartCard, SprintReportCard, VelocityCard } from "./Reports";
 import { RecentWork } from "./RecentWork";
 import { Announcements } from "./Announcements";
 
@@ -226,6 +226,7 @@ export function TeamSpace({ team, orgs, projects, items, users, canManage, onMov
         <BurnupCard items={teamItems} sprint={active} />
         <VelocityCard items={teamItems} sprints={sprints} />
         <ControlChartCard items={teamItems} />
+        <SprintReportCard items={teamItems} sprint={active} />
       </div>
 
       {/* backlog */}

@@ -15,7 +15,8 @@ import {
 import {
   assignItemProject, bulkCommands, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
   fetchAnnouncements, fetchItems, fetchMe, fetchNotifications, fetchStructure, fetchUsers,
-  logout, markNotificationsRead, postCommand, postSpawn, renameOrg, searchAll, setTeamOrg, teamMemberOp, teamProjectOp,
+  fetchNotificationPrefs, logout, markNotificationsRead, postCommand, postSpawn, putNotificationPrefs,
+  renameOrg, searchAll, setItemArchived, setTeamOrg, teamMemberOp, teamProjectOp,
   type AnnouncementInfo, type AnnouncementScope, type ApiUser, type NotificationInfo, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
 import type { SearchHit } from "@/lib/search";
@@ -32,6 +33,9 @@ import { ItemComments } from "./ItemComments";
 import { ItemLinks } from "./ItemLinks";
 import { ListView } from "./ListView";
 import { TimelineView } from "./TimelineView";
+import { CalendarView } from "./CalendarView";
+import { ProjectSummaryView } from "./ProjectSummaryView";
+import { CapacityCard } from "./CapacityCard";
 import { Navigator } from "./Navigator";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
@@ -85,6 +89,8 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<AnnouncementInfo[]>([]);
   const [notifications, setNotifications] = useState<NotificationInfo[]>([]);
   const [bellOpen, setBellOpen] = useState(false);
+  const [emailPref, setEmailPref] = useState(false);
+  const [emailChannelActive, setEmailChannelActive] = useState(false);
   const [annModal, setAnnModal] = useState(false);
   const [annScope, setAnnScope] = useState<AnnouncementScope>("company");
   const [annTarget, setAnnTarget] = useState("");
@@ -100,7 +106,7 @@ export default function App() {
   const [selOrgId, setSelOrgId] = useState<string | null>(null);
   // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
   const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
-  const [view, setView] = useState<"detail" | "board" | "list" | "timeline">("detail");
+  const [view, setView] = useState<"detail" | "board" | "list" | "timeline" | "calendar" | "summary">("detail");
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -147,6 +153,16 @@ export default function App() {
     })();
   }, []);
 
+  // email opt-in: fetched once per login
+  useEffect(() => {
+    if (!me) return;
+    let live = true;
+    fetchNotificationPrefs().then((r) => {
+      if (live && r.ok) { setEmailPref(r.data.emailEnabled); setEmailChannelActive(r.data.channelActive); }
+    });
+    return () => { live = false; };
+  }, [me]);
+
   // notifications: fetch on login, then poll every 30s (cleaned up on unmount)
   useEffect(() => {
     if (!me) return;
@@ -183,6 +199,9 @@ export default function App() {
 
   const role: Role = me.role;
   const actor = me.name;
+  // archived items stay in state (detail remains reachable) but are hidden
+  // from boards/views/pickers; the list view has its own show-archived toggle
+  const activeItems = items.filter((i) => !i.archivedAt);
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
   const item = byId[selId] || items[0];
   if (!item) return <div className="app-loading">No items yet.</div>;
@@ -294,6 +313,18 @@ export default function App() {
   /* ---- work items (server-validated commands) ---- */
   function addWorkItem(draft: { type: WiType; title: string; assignee: string; state?: WiState }) {
     void sendCmd(item.id, { kind: "wiCreate", draft }, { ok: true, message: "Added work item", detail: draft.title });
+  }
+  // CSV import: each row is a normal wiCreate command on its TARGET item, so
+  // flows/guards/version checks all apply; per-item queues serialize them.
+  function importWorkItem(itemId: string, draft: unknown): Promise<boolean> {
+    return sendCmd(itemId, { kind: "wiCreate", draft });
+  }
+  async function archiveItem(archived: boolean) {
+    const r = await setItemArchived(item.id, archived);
+    if (!r.ok) { pushToast({ ok: false, message: r.error }); return; }
+    setItems((its) => (its || []).map((it) =>
+      it.id === item.id ? { ...it, archivedAt: archived ? new Date().toISOString() : null } : it));
+    pushToast({ ok: true, message: archived ? `Archived ${item.id}` : `Restored ${item.id}` });
   }
   function editWorkItem(wiId: string, patch: Partial<WorkItem>) {
     void sendCmd(item.id, { kind: "wiUpdate", wiId, patch: toWire(patch) });
@@ -548,9 +579,10 @@ export default function App() {
         </div>
         {mode === "projects" &&
           <div className="viewswitch">
-            {(["detail", "board", "list", "timeline"] as const).map((v) => (
+            {(["detail", "board", "list", "timeline", "calendar", "summary"] as const).map((v) => (
               <button key={v} data-on={view === v} onClick={() => setView(v)}>
-                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : v === "list" ? "☰ List" : "⇶ Timeline"}
+                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : v === "list" ? "☰ List"
+                  : v === "timeline" ? "⇶ Timeline" : v === "calendar" ? "◫ Calendar" : "◎ Summary"}
               </button>
             ))}
           </div>}
@@ -601,6 +633,15 @@ export default function App() {
                   <span className="bell-ts mono">{timeAgo(new Date(n.createdAt).getTime())}</span>
                 </button>
               ))}
+              <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", fontSize: 12, borderTop: "1px solid var(--border-1)" }}
+                title={emailChannelActive ? "Also send these as email" : "Server has no SMTP configured — emails stay off"}>
+                <input type="checkbox" checked={emailPref} disabled={!emailChannelActive}
+                  onChange={(e) => {
+                    setEmailPref(e.target.checked);
+                    void putNotificationPrefs(e.target.checked);
+                  }} />
+                Email me notifications{emailChannelActive ? "" : " (SMTP not configured)"}
+              </label>
             </div>
           </>}
         </div>
@@ -656,7 +697,7 @@ export default function App() {
             </div>}
           </div>
           <div className="itemtree scroll">
-            <Navigator mode={mode} meId={me.id} orgs={structure.orgs} projects={structure.projects} teams={structure.teams} items={items}
+            <Navigator mode={mode} meId={me.id} orgs={structure.orgs} projects={structure.projects} teams={structure.teams} items={activeItems}
               selId={selId} selTeamId={mode === "org" ? selTeamId : null} selOrgId={mode === "org" ? selOrgId : null}
               onSelect={selectItem} onSelectTeam={selectTeam} onSelectOrg={selectOrg}
               filter={filter} search={query} collapsed={collapsed} onToggle={toggleNode} />
@@ -666,14 +707,14 @@ export default function App() {
         {/* DASHBOARD — personalized default landing (admin sees full company rollup) */}
         {mode === "dashboard" &&
           <DashboardView me={me} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
-            items={items} announcements={announcements} canManage={isPM}
+            items={activeItems} announcements={announcements} canManage={isPM}
             onDeleteAnn={removeAnnouncement} annName={annName}
             onSelectItem={selectItem} onOpenWork={openFromBoard} />}
 
         {/* ORGANIZATION — tree selects an org (org detail/management) or a team (full TeamSpace) */}
         {mode === "org" && selTeam &&
           <main className="detail board-main">
-            <TeamSpace team={selTeam} orgs={structure.orgs} projects={structure.projects} items={items}
+            <TeamSpace team={selTeam} orgs={structure.orgs} projects={structure.projects} items={activeItems}
               users={users} canManage={isPM}
               onMove={moveWorkItemOn} onOpen={openFromBoard} onSelectItem={selectItem}
               onMemberOp={(u, op) => memberOp(selTeam.id, u, op)}
@@ -684,26 +725,42 @@ export default function App() {
           </main>}
         {mode === "org" && !selTeam &&
           <OrgView meId={me.id} selOrgId={selOrgId} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
-            items={items} announcements={announcements} canManage={isPM} onDeleteAnn={removeAnnouncement}
+            items={activeItems} announcements={announcements} canManage={isPM} onDeleteAnn={removeAnnouncement}
             onOpenWork={openFromBoard} onSelectTeam={selectTeam}
             onRenameOrg={orgRename} onDeleteOrg={orgDelete} />}
 
         {/* BOARD */}
         {mode === "projects" && view === "board" &&
           <main className="detail board-main">
-            <Board items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
+            <Board items={activeItems} onMove={moveWorkItemOn} onOpen={openFromBoard} />
           </main>}
 
         {/* LIST */}
         {mode === "projects" && view === "list" &&
           <main className="detail board-main">
-            <ListView items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
+            <ListView items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} onImport={importWorkItem} />
           </main>}
 
-        {/* TIMELINE */}
+        {/* TIMELINE (+ plans-lite capacity row per team) */}
         {mode === "projects" && view === "timeline" &&
+          <main className="detail board-main" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <TimelineView items={activeItems} onSelect={(id) => { setSelId(id); setView("detail"); }} />
+            <CapacityCard items={activeItems} teams={structure.teams} />
+          </main>}
+
+        {/* CALENDAR */}
+        {mode === "projects" && view === "calendar" &&
           <main className="detail board-main">
-            <TimelineView items={items} onSelect={(id) => { setSelId(id); setView("detail"); }} />
+            <CalendarView items={activeItems}
+              onOpen={(itemId, wiId) => { setSelId(itemId); if (wiId) setOpenWiId(wiId); else setView("detail"); }} />
+          </main>}
+
+        {/* PROJECT SUMMARY */}
+        {mode === "projects" && view === "summary" &&
+          <main className="detail board-main">
+            <ProjectSummaryView items={activeItems} projects={structure.projects}
+              initialProjectId={item.project ?? null} canManage={isPM}
+              onSelectItem={(id) => { setSelId(id); setView("detail"); }} />
           </main>}
 
         {/* DETAIL */}
@@ -722,6 +779,13 @@ export default function App() {
               <span className="id">{item.id}</span>
               <h1>{item.title}</h1>
               <StateBadge stateKey={snap.state} />
+              {item.archivedAt && <span className="kpill" title={`archived ${item.archivedAt}`}>🗃 archived</span>}
+              {isPM &&
+                <button className="act" style={{ marginLeft: 6 }}
+                  title={item.archivedAt ? "Restore — show this item in views again" : "Archive — hide from boards and views (history kept)"}
+                  onClick={() => void archiveItem(!item.archivedAt)}>
+                  {item.archivedAt ? "↩ Restore" : "🗃 Archive"}
+                </button>}
             </div>
             <div className="dh-meta">
               <span className="chip" style={{ background: "var(--surface-2)", color: "var(--text-2)", border: "1px solid var(--border)" }}>{(WI_TYPES[item.type] || WI_TYPES.feature).label}</span>
