@@ -720,7 +720,7 @@ export default function App() {
         {mode === "projects" && view === "summary" &&
           <main className="detail board-main">
             <ProjectSummaryView items={items} projects={structure.projects}
-              initialProjectId={item.project ?? null}
+              initialProjectId={item.project ?? null} canManage={isPM}
               onSelectItem={(id) => { setSelId(id); setView("detail"); }} />
           </main>}
 

@@ -168,6 +168,7 @@ export interface Item {
   priority: "High" | "Medium" | "Low";
   parent: string | null;
   project?: string | null;       // owning project id (items.project_id)
+  fixVersion?: string | null;    // release membership (items.fix_version — metadata, not lifecycle)
   type: WiType;
   stakeholders: Stakeholder[];
   workItems: WorkItem[];

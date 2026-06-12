@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -122,5 +122,39 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     expect((await att.deleteAttachment(r2.id)).ok).toBe(false); // already gone
     await admin.query("DELETE FROM items WHERE id = 'ATT-1'");
     expect(await att.getAttachment(r1.id)).toBeNull(); // cascaded
+  });
+
+  it("versions: per-project unique, assignment guards project match, delete clears members", async () => {
+    const ver = await import("./repo/versions");
+    const s = await import("./repo/structure");
+    const projects = (await s.getStructure()).projects;
+    const prjA = projects[0].id, prjB = projects[1]?.id;
+    await admin.query(
+      "INSERT INTO items (id, title, area, priority, parent, type, project_id, stakeholders, work_items) VALUES ('VER-1', 'T', 'A', 'High', NULL, 'feature', ?, '[]', '[]')",
+      [prjA]);
+
+    const r = await ver.createVersion(prjA, "2.1.0", "2026-09-01");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect((await ver.createVersion(prjA, "2.1.0", null)).ok).toBe(false);   // dup per project
+    expect((await ver.createVersion("prj-nope", "X", null)).ok).toBe(false); // unknown project
+
+    expect((await ver.assignItemVersion("VER-1", r.id)).ok).toBe(true);
+    expect(await ver.versionItemIds(r.id)).toEqual(["VER-1"]);
+    const listed = await ver.listVersions(prjA);
+    expect(listed.find((v) => v.id === r.id)).toMatchObject({ name: "2.1.0", releaseDate: "2026-09-01", state: "unreleased", itemCount: 1 });
+
+    if (prjB) { // cross-project assignment rejected
+      const other = await ver.createVersion(prjB, "9.9.9", null);
+      expect(other.ok).toBe(true);
+      if (other.ok) expect((await ver.assignItemVersion("VER-1", other.id)).ok).toBe(false);
+    }
+
+    expect((await ver.updateVersion(r.id, { state: "released" })).ok).toBe(true);
+    expect((await ver.updateVersion("ver-nope", { state: "archived" })).ok).toBe(false);
+    expect((await ver.deleteVersion(r.id)).ok).toBe(true);
+    // ON DELETE SET NULL — the member fell out of the release
+    const [rows] = await admin.query("SELECT fix_version FROM items WHERE id = 'VER-1'");
+    expect((rows as { fix_version: string | null }[])[0].fix_version).toBeNull();
   });
 });

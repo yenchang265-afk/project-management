@@ -176,6 +176,34 @@ export const createComponent = (projectId: string, name: string) =>
 export const deleteComponent = (id: string) =>
   call<Record<string, never>>(`/api/components/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/* ---------- Versions / releases (membership = items.fix_version column) ---------- */
+export type VersionState = "unreleased" | "released" | "archived";
+export interface VersionInfo {
+  id: string; projectId: string; name: string;
+  releaseDate: string | null; state: VersionState; itemCount: number;
+}
+
+export const fetchVersions = (projectId: string) =>
+  call<{ versions: VersionInfo[] }>(`/api/versions?projectId=${encodeURIComponent(projectId)}`);
+
+export const createVersion = (projectId: string, name: string, releaseDate: string | null = null) =>
+  call<{ id: string }>("/api/versions", {
+    method: "POST", body: JSON.stringify({ projectId, name, releaseDate }),
+  });
+
+export const updateVersion = (id: string, patch: { name?: string; releaseDate?: string | null; state?: VersionState }) =>
+  call<Record<string, never>>(`/api/versions/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify(patch),
+  });
+
+export const deleteVersion = (id: string) =>
+  call<Record<string, never>>(`/api/versions/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const assignItemVersion = (itemId: string, versionId: string | null) =>
+  call<Record<string, never>>(`/api/items/${encodeURIComponent(itemId)}/version`, {
+    method: "PATCH", body: JSON.stringify({ versionId }),
+  });
+
 /* ---------- Attachments (metadata; bytes served via /api/attachments/:id) ---------- */
 export interface AttachmentInfo {
   id: string; itemId: string; wiId: string | null;
