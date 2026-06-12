@@ -297,6 +297,11 @@ export default function App() {
   function addWorkItem(draft: { type: WiType; title: string; assignee: string; state?: WiState }) {
     void sendCmd(item.id, { kind: "wiCreate", draft }, { ok: true, message: "Added work item", detail: draft.title });
   }
+  // CSV import: each row is a normal wiCreate command on its TARGET item, so
+  // flows/guards/version checks all apply; per-item queues serialize them.
+  function importWorkItem(itemId: string, draft: unknown): Promise<boolean> {
+    return sendCmd(itemId, { kind: "wiCreate", draft });
+  }
   function editWorkItem(wiId: string, patch: Partial<WorkItem>) {
     void sendCmd(item.id, { kind: "wiUpdate", wiId, patch: toWire(patch) });
   }
@@ -700,7 +705,7 @@ export default function App() {
         {/* LIST */}
         {mode === "projects" && view === "list" &&
           <main className="detail board-main">
-            <ListView items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
+            <ListView items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} onImport={importWorkItem} />
           </main>}
 
         {/* TIMELINE */}

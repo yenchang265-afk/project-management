@@ -6,6 +6,7 @@ import {
   type Item, type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import { parseCql, runCql, wiToCqlRow, type CqlRow } from "@/lib/cql";
+import { mapCsvToWiDrafts, parseCsv } from "@/lib/csv";
 import { createFilter, deleteFilter, fetchFilters, type SavedFilterInfo } from "@/lib/api";
 import { TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
@@ -20,6 +21,7 @@ interface ListViewProps {
   items: Item[];
   onMove: (itemId: string, wiId: string, to: WiState) => void;
   onOpen: (itemId: string, wiId: string) => void;
+  onImport: (itemId: string, draft: unknown) => Promise<boolean>;
 }
 
 const COLS = ["id", "title", "item", "type", "state", "assignee", "sprint", "due", "points", "time"] as const;
@@ -28,7 +30,7 @@ function csvEscape(v: string): string {
   return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
 
-export function ListView({ items, onMove, onOpen }: ListViewProps) {
+export function ListView({ items, onMove, onOpen, onImport }: ListViewProps) {
   const [q, setQ] = useState("");
   const [fType, setFType] = useState<"" | WiType>("");
   const [fState, setFState] = useState<"" | WiState>("");
@@ -39,6 +41,21 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
   const [saveName, setSaveName] = useState("");
   const [saveShared, setSaveShared] = useState(false);
   const [filterErr, setFilterErr] = useState<string | null>(null);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  async function onPickCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const { drafts, errors } = mapCsvToWiDrafts(parseCsv(await file.text()), new Set(items.map((i) => i.id)));
+    if (!drafts.length) { setImportMsg(`Nothing to import. ${errors[0] ?? ""}`); return; }
+    setImporting(true);
+    let ok = 0, failed = 0;
+    for (const d of drafts) (await onImport(d.itemId, d.draft)) ? ok++ : failed++;
+    setImporting(false);
+    setImportMsg(`Imported ${ok}${failed ? `, ${failed} failed` : ""}${errors.length ? ` · ${errors.length} row(s) skipped: ${errors[0]}` : ""}`);
+  }
 
   useEffect(() => {
     let stale = false;
@@ -105,7 +122,14 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
     <div className="card" style={{ overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", margin: "14px 18px" }}>
       <div className="card-h">
         <h3>All work items <span className="wi-cc">{rows.length}/{all.length}</span></h3>
-        <button className="act" onClick={exportCsv} disabled={!rows.length}>⤓ CSV</button>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {importMsg && <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>{importMsg}</span>}
+          <label className="act" style={{ cursor: importing ? "wait" : "pointer" }} title="Import work items from CSV (columns: item, title, type, state, assignee, sprint, due_date, component)">
+            ⤒ Import
+            <input type="file" accept=".csv,text/csv" disabled={importing} onChange={(e) => void onPickCsv(e)} style={{ display: "none" }} />
+          </label>
+          <button className="act" onClick={exportCsv} disabled={!rows.length}>⤓ CSV</button>
+        </div>
       </div>
       <div className="card-b" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div className="board-filters" style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 8 }}>
