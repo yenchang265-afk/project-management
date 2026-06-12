@@ -156,6 +156,23 @@ export const fetchSprints = (teamId: string) =>
 export const fetchAllSprints = () =>
   call<{ sprints: SprintInfo[] }>("/api/sprints");
 
+/* ---------- Label + component registries (feed pickers; WIs store plain strings) ---------- */
+export interface LabelInfo { id: string; name: string; }
+export interface ComponentInfo { id: string; projectId: string; name: string; }
+
+export const fetchLabels = () => call<{ labels: LabelInfo[] }>("/api/labels");
+export const createLabel = (name: string) =>
+  call<{ id: string }>("/api/labels", { method: "POST", body: JSON.stringify({ name }) });
+export const deleteLabel = (id: string) =>
+  call<Record<string, never>>(`/api/labels/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const fetchComponents = (projectId: string) =>
+  call<{ components: ComponentInfo[] }>(`/api/components?projectId=${encodeURIComponent(projectId)}`);
+export const createComponent = (projectId: string, name: string) =>
+  call<{ id: string }>("/api/components", { method: "POST", body: JSON.stringify({ projectId, name }) });
+export const deleteComponent = (id: string) =>
+  call<Record<string, never>>(`/api/components/${encodeURIComponent(id)}`, { method: "DELETE" });
+
 /* ---------- Saved filters (named CQL queries; shared = visible to everyone) ---------- */
 export interface SavedFilterInfo {
   id: string; name: string; cql: string; shared: boolean; mine: boolean;

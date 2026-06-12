@@ -9,6 +9,7 @@ import {
   type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import { timeAgo } from "@/lib/format";
+import { fetchComponents, fetchLabels } from "@/lib/api";
 import { Avatar, TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 const WI_TYPE_OPTS: WiType[] = ["story", "task", "bug"];
@@ -49,6 +50,19 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
   const [logNote, setLogNote] = useState("");
   const [cfKey, setCfKey] = useState("");
   const [cfVal, setCfVal] = useState("");
+  const [labelNames, setLabelNames] = useState<string[]>([]);
+  const [componentNames, setComponentNames] = useState<string[]>([]);
+
+  // registries feed pickers only — work items keep storing plain strings
+  useEffect(() => {
+    let stale = false;
+    fetchLabels().then((r) => { if (!stale && r.ok) setLabelNames(r.data.labels.map((l) => l.name)); });
+    if (item.project)
+      fetchComponents(item.project).then((r) => {
+        if (!stale && r.ok) setComponentNames(r.data.components.map((c) => c.name));
+      });
+    return () => { stale = true; };
+  }, [item.project]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -221,6 +235,14 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 onChange={(e) => setSprintBuf(e.target.value)} onBlur={commitSprint}
                 onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
             </label>
+            <label className="wi-field"><span>Component</span>
+              {/* options come from the project registry; an off-registry value stays selectable */}
+              <select value={w.component ?? ""} onChange={(e) => onUpdate(wiId, { component: e.target.value || undefined })}>
+                <option value="">—</option>
+                {w.component && !componentNames.includes(w.component) && <option value={w.component}>{w.component}</option>}
+                {componentNames.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
             <label className="wi-field"><span>Due date</span>
               {/* native date input emits "" or a valid YYYY-MM-DD — matches the engine's isIsoDate */}
               <input type="date" value={w.dueDate ?? ""}
@@ -260,11 +282,16 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
           </label>
 
           <div className="wi-field block"><span>Tags</span>
+            {/* managed label registry feeds autocomplete; free-form tags still allowed */}
+            <datalist id="wi-label-options">
+              {labelNames.map((l) => <option key={l} value={l} />)}
+            </datalist>
             <div className="wi-tags">
               {tags.map((t) => (
                 <span className="wi-tag" key={t}>{t}<button title="Remove tag" onClick={() => removeTag(t)}>×</button></span>
               ))}
               <input className="wi-tag-input" value={tagInput} placeholder="add tag…" maxLength={40}
+                list="wi-label-options"
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); } }}
                 onBlur={() => { if (tagInput.trim()) addTag(); }} />

@@ -161,7 +161,7 @@ export function ListView({ items, onMove, onOpen }: ListViewProps) {
         </div>
         <div style={{ paddingBottom: 8 }}>
           <input value={cql} aria-label="CQL query" className="mono" style={{ width: "100%" }}
-            placeholder='CQL: state = todo AND points > 2 ORDER BY points DESC  ·  fields: id title item type state assignee sprint points priority severity phase tag parent due cf.<key>'
+            placeholder='CQL: state = todo AND points > 2 ORDER BY points DESC  ·  fields: id title item type state assignee sprint points priority severity phase tag parent due component cf.<key>'
             onChange={(e) => setCql(e.target.value)} />
           {cqlParsed && !cqlParsed.ok &&
             <div className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11, paddingTop: 4 }}>⚠ {cqlParsed.error}</div>}

@@ -12,6 +12,7 @@ export const PERMISSIONS = {
   manage_projects: ["PM"],
   manage_sprints: ["PM"],
   manage_announcements: ["PM"],
+  manage_metadata: ["PM"],   // labels, components, custom-field defs
   assign_item_project: ["PM"],
   spawn_iteration: ["PM"],
   bulk_commands: ["PM", "Dev"],

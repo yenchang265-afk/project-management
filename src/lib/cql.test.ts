@@ -149,3 +149,11 @@ describe("itemsToCqlRows", () => {
     void deriveItem; // rows must come from the derived snapshot, asserted via state above
   });
 });
+
+describe("component field", () => {
+  it("matches component case-insensitively and supports EMPTY", () => {
+    expect(matches("component = checkout", row({ component: "Checkout" }))).toBe(true);
+    expect(matches("component = EMPTY", row({ component: undefined }))).toBe(true);
+    expect(matches("component != EMPTY", row({ component: "Checkout" }))).toBe(true);
+  });
+});

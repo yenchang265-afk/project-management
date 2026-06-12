@@ -145,6 +145,7 @@ export interface WorkItem {
   phase?: WiPhase;            // SDLC phase binding (drives board swimlanes + rollup context)
   sprint?: string;            // sprint/iteration name (free text, trimmed)
   dueDate?: string;           // ISO YYYY-MM-DD — plotted on the calendar view
+  component?: string;         // component name (trimmed; per-project registry feeds the picker)
   links?: WiLink[];           // outgoing links; inverse direction is derived for display
   parentWiId?: string;        // subtask parent (one level — a parent can't itself be a subtask)
   originalEstimate?: number;  // hours >= 0
@@ -435,6 +436,7 @@ export function deriveItem(item: Item): Snapshot {
           if (p.sprint != null) created.sprint = p.sprint;
           if (p.parentWiId != null) created.parentWiId = p.parentWiId;
           if (p.dueDate != null) created.dueDate = p.dueDate;
+          if (p.component != null) created.component = p.component;
           workItems = [...workItems, created];
         }
         break;
@@ -806,7 +808,7 @@ function parentWiError(snap: Snapshot, parentWiId: string, selfId?: string): str
 
 export function createWorkItem(
   item: Item, snap: Snapshot,
-  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string; parentWiId?: string; dueDate?: string },
+  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string; parentWiId?: string; dueDate?: string; component?: string },
   actor: string, role: Role
 ): WiResult {
   const title = (draft.title || "").trim();
@@ -836,6 +838,8 @@ export function createWorkItem(
   if (sprint) wi.sprint = sprint;
   if (draft.parentWiId !== undefined) wi.parentWiId = draft.parentWiId;
   if (draft.dueDate !== undefined) wi.dueDate = draft.dueDate;
+  const component = (draft.component || "").trim();
+  if (component) wi.component = component;
   return { ok: true, event: ev(item.id, "WI_CREATE", actor, role, { wiId: id, wi }) };
 }
 
@@ -889,6 +893,10 @@ export function updateWorkItem(
   if ("sprint" in patch) {
     const v = (patch.sprint ?? "").trim() || undefined;
     if (v !== cur.sprint) wi.sprint = v ?? null;
+  }
+  if ("component" in patch) {
+    const v = (patch.component ?? "").trim() || undefined;
+    if (v !== cur.component) wi.component = v ?? null;
   }
   if (patch.tags !== undefined) {
     const norm = normalizeTags(patch.tags);

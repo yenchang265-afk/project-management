@@ -595,3 +595,40 @@ describe("due date", () => {
     expect(createWorkItem(item, deriveItem(item), { type: "task", title: "t", assignee: "x", dueDate: "soon" }, PM, "PM").ok).toBe(false);
   });
 });
+
+/* ---------------- component (per-project registry feeds the picker; engine stores the string) ---------------- */
+
+describe("component field", () => {
+  it("sets, changes, and clears component via WI_UPDATE (trimmed)", () => {
+    let item = makeItem();
+    const set = updateWorkItem(item, deriveItem(item), "PAY-418", { component: "  Checkout API " }, PM, "PM");
+    expect(set.ok).toBe(true);
+    if (!set.ok) return;
+    item = withEvent(item, set.event);
+    expect(deriveItem(item).workItems.find((w) => w.id === "PAY-418")!.component).toBe("Checkout API");
+
+    const clear = updateWorkItem(item, deriveItem(item), "PAY-418", { component: undefined }, PM, "PM");
+    expect(clear.ok).toBe(true);
+    if (!clear.ok) return;
+    expect(clear.event.wi!.component).toBeNull();
+    item = withEvent(item, clear.event);
+    expect(deriveItem(item).workItems.find((w) => w.id === "PAY-418")!.component).toBeUndefined();
+  });
+
+  it("a no-op component patch is rejected as no change", () => {
+    const wis: WorkItem[] = [
+      { id: "PAY-418", type: "story", title: "T", state: "todo", assignee: "", component: "Checkout API" },
+    ];
+    const item = makeItem(wis);
+    expect(updateWorkItem(item, deriveItem(item), "PAY-418", { component: "Checkout API" }, PM, "PM").ok).toBe(false);
+  });
+
+  it("WI_CREATE carries component when supplied", () => {
+    const item = makeItem();
+    const r = createWorkItem(item, deriveItem(item), { type: "task", title: "t", assignee: "x", component: "Billing" }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const snap = deriveItem(withEvent(item, r.event));
+    expect(snap.workItems.find((w) => w.id === r.event.wiId)!.component).toBe("Billing");
+  });
+});

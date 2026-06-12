@@ -30,6 +30,7 @@ export interface CqlRow {
   tags: string[];
   parent?: string;
   due?: string; // ISO YYYY-MM-DD — range ops compare lexicographically
+  component?: string;
   cf: Record<string, string | number>;
 }
 
@@ -40,7 +41,7 @@ export function wiToCqlRow(itemId: string, w: WorkItem): CqlRow {
     type: w.type, state: w.state, assignee: w.assignee,
     sprint: w.sprint, points: w.storyPoints, priority: w.priority,
     severity: w.severity, phase: w.phase, tags: w.tags || [],
-    parent: w.parentWiId, due: w.dueDate, cf: w.customFields || {},
+    parent: w.parentWiId, due: w.dueDate, component: w.component, cf: w.customFields || {},
   };
 }
 
@@ -51,7 +52,7 @@ export function itemsToCqlRows(items: Item[]): CqlRow[] {
 
 const FIELDS = new Set([
   "id", "title", "item", "type", "state", "assignee", "sprint",
-  "points", "priority", "severity", "phase", "tag", "parent", "due",
+  "points", "priority", "severity", "phase", "tag", "parent", "due", "component",
 ]);
 
 type Op = "=" | "!=" | "~" | "!~" | ">" | ">=" | "<" | "<=";
@@ -254,6 +255,7 @@ function fieldValue(row: CqlRow, field: string): string | number | string[] | un
     case "tag": return row.tags;
     case "parent": return row.parent;
     case "due": return row.due;
+    case "component": return row.component;
     default: return undefined;
   }
 }
