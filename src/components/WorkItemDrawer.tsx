@@ -9,7 +9,7 @@ import {
   type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import { timeAgo } from "@/lib/format";
-import { fetchComponents, fetchLabels } from "@/lib/api";
+import { fetchComponents, fetchFieldDefs, fetchLabels, type FieldDefInfo } from "@/lib/api";
 import { Avatar, TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 const WI_TYPE_OPTS: WiType[] = ["story", "task", "bug"];
@@ -52,6 +52,7 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
   const [cfVal, setCfVal] = useState("");
   const [labelNames, setLabelNames] = useState<string[]>([]);
   const [componentNames, setComponentNames] = useState<string[]>([]);
+  const [fieldDefs, setFieldDefs] = useState<FieldDefInfo[]>([]);
 
   // registries feed pickers only — work items keep storing plain strings
   useEffect(() => {
@@ -61,6 +62,7 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
       fetchComponents(item.project).then((r) => {
         if (!stale && r.ok) setComponentNames(r.data.components.map((c) => c.name));
       });
+    fetchFieldDefs(item.project ?? null).then((r) => { if (!stale && r.ok) setFieldDefs(r.data.fields); });
     return () => { stale = true; };
   }, [item.project]);
 
@@ -297,6 +299,38 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 onBlur={() => { if (tagInput.trim()) addTag(); }} />
             </div>
           </div>
+
+          {fieldDefs.length > 0 &&
+            <div className="wi-field block"><span>Fields</span>
+              {/* defined custom fields: typed inputs writing per-key deltas into customFields */}
+              <div className="wi-grid">
+                {fieldDefs.map((d) => {
+                  const cur = customFields[d.key];
+                  const commit = (raw: string) => {
+                    if (raw === "") { if (cur !== undefined) onUpdate(wiId, { customFields: { [d.key]: null } as unknown as Record<string, string> }); return; }
+                    const v = d.kind === "number" ? Number(raw) : raw;
+                    if (d.kind === "number" && !Number.isFinite(v as number)) return;
+                    if (v !== cur) onUpdate(wiId, { customFields: { [d.key]: v } });
+                  };
+                  return (
+                    <label className="wi-field" key={d.id}><span>{d.name}{d.scope ? "" : " ⦿"}</span>
+                      {d.kind === "select" ? (
+                        <select value={cur != null ? String(cur) : ""} onChange={(e) => commit(e.target.value)}>
+                          <option value="">—</option>
+                          {cur != null && !(d.options || []).includes(String(cur)) && <option value={String(cur)}>{String(cur)}</option>}
+                          {(d.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : (
+                        <input type={d.kind === "number" ? "number" : d.kind === "date" ? "date" : "text"}
+                          defaultValue={cur != null ? String(cur) : ""} placeholder="—" maxLength={2000}
+                          onBlur={(e) => commit(e.target.value.trim())}
+                          onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>}
 
           <div className="wi-field block"><span>Custom fields <span className="wi-cc">{Object.keys(customFields).length}</span></span>
             <div className="wi-links">

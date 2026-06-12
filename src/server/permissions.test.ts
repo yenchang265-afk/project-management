@@ -11,6 +11,7 @@ const PM_ONLY = [
   "manage_projects",
   "manage_sprints",
   "manage_announcements",
+  "manage_metadata",
   "assign_item_project",
   "spawn_iteration",
 ] as const;

@@ -173,6 +173,21 @@ export const createComponent = (projectId: string, name: string) =>
 export const deleteComponent = (id: string) =>
   call<Record<string, never>>(`/api/components/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/* ---------- Custom-field definitions (values travel in WI events) ---------- */
+export type FieldKind = "text" | "number" | "date" | "select";
+export interface FieldDefInfo {
+  id: string; scope: string; key: string; name: string; kind: FieldKind; options: string[] | null;
+}
+
+export const fetchFieldDefs = (projectId: string | null) =>
+  call<{ fields: FieldDefInfo[] }>(`/api/fields${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`);
+
+export const createFieldDef = (def: { projectId: string | null; key: string; name: string; kind: FieldKind; options?: string[] }) =>
+  call<{ id: string }>("/api/fields", { method: "POST", body: JSON.stringify(def) });
+
+export const deleteFieldDef = (id: string) =>
+  call<Record<string, never>>(`/api/fields/${encodeURIComponent(id)}`, { method: "DELETE" });
+
 /* ---------- Saved filters (named CQL queries; shared = visible to everyone) ---------- */
 export interface SavedFilterInfo {
   id: string; name: string; cql: string; shared: boolean; mine: boolean;

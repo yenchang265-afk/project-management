@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -71,5 +71,33 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     await admin.query("UPDATE items SET project_id = NULL WHERE project_id = ?", [prj]);
     await admin.query("DELETE FROM projects WHERE id = ?", [prj]);
     expect(await repo.listComponents(prj)).toEqual([]); // cascaded
+  });
+
+  it("field defs: global + project scoping, key validation, select needs options", async () => {
+    const fields = await import("./repo/fields");
+    const s = await import("./repo/structure");
+    const prj = (await s.getStructure()).projects[0].id;
+
+    expect(await fields.createFieldDef(null, "team_area", "Team area", "text", null))
+      .toEqual({ ok: true, id: "fld-team-area" });
+    expect((await fields.createFieldDef(prj, "risk", "Risk", "select", ["low", "high"])).ok).toBe(true);
+    // key rules + select-needs-options + unknown project + duplicate per scope
+    expect((await fields.createFieldDef(null, "Bad Key!", "x", "text", null)).ok).toBe(false);
+    expect((await fields.createFieldDef(null, "sev", "Severity", "select", [])).ok).toBe(false);
+    expect((await fields.createFieldDef("prj-nope", "k", "x", "text", null)).ok).toBe(false);
+    expect((await fields.createFieldDef(null, "team_area", "Again", "number", null)).ok).toBe(false);
+    // same key in a PROJECT scope is fine (scopes are disjoint)
+    expect((await fields.createFieldDef(prj, "team_area", "Project area", "text", null)).ok).toBe(true);
+
+    const forProject = await fields.listFieldDefs(prj);
+    expect(forProject.map((f) => `${f.scope || "global"}:${f.key}`)).toEqual(
+      ["global:team_area", `${prj}:risk`, `${prj}:team_area`]);
+    const risk = forProject.find((f) => f.key === "risk")!;
+    expect(risk.options).toEqual(["low", "high"]);
+    // global-only listing hides project defs
+    expect((await fields.listFieldDefs(null)).every((f) => f.scope === "")).toBe(true);
+
+    expect((await fields.deleteFieldDef("fld-team-area")).ok).toBe(true);
+    expect((await fields.deleteFieldDef("fld-team-area")).ok).toBe(false);
   });
 });
