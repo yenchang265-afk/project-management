@@ -199,6 +199,11 @@ export const updateVersion = (id: string, patch: { name?: string; releaseDate?: 
 export const deleteVersion = (id: string) =>
   call<Record<string, never>>(`/api/versions/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+export const setItemArchived = (itemId: string, archived: boolean) =>
+  call<Record<string, never>>(`/api/items/${encodeURIComponent(itemId)}/archive`, {
+    method: "PATCH", body: JSON.stringify({ archived }),
+  });
+
 export const assignItemVersion = (itemId: string, versionId: string | null) =>
   call<Record<string, never>>(`/api/items/${encodeURIComponent(itemId)}/version`, {
     method: "PATCH", body: JSON.stringify({ versionId }),

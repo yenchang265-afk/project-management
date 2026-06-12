@@ -15,7 +15,7 @@ import {
 import {
   assignItemProject, bulkCommands, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
   fetchAnnouncements, fetchItems, fetchMe, fetchNotifications, fetchStructure, fetchUsers,
-  logout, markNotificationsRead, postCommand, postSpawn, renameOrg, searchAll, setTeamOrg, teamMemberOp, teamProjectOp,
+  logout, markNotificationsRead, postCommand, postSpawn, renameOrg, searchAll, setItemArchived, setTeamOrg, teamMemberOp, teamProjectOp,
   type AnnouncementInfo, type AnnouncementScope, type ApiUser, type NotificationInfo, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
 import type { SearchHit } from "@/lib/search";
@@ -185,6 +185,9 @@ export default function App() {
 
   const role: Role = me.role;
   const actor = me.name;
+  // archived items stay in state (detail remains reachable) but are hidden
+  // from boards/views/pickers; the list view has its own show-archived toggle
+  const activeItems = items.filter((i) => !i.archivedAt);
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
   const item = byId[selId] || items[0];
   if (!item) return <div className="app-loading">No items yet.</div>;
@@ -301,6 +304,13 @@ export default function App() {
   // flows/guards/version checks all apply; per-item queues serialize them.
   function importWorkItem(itemId: string, draft: unknown): Promise<boolean> {
     return sendCmd(itemId, { kind: "wiCreate", draft });
+  }
+  async function archiveItem(archived: boolean) {
+    const r = await setItemArchived(item.id, archived);
+    if (!r.ok) { pushToast({ ok: false, message: r.error }); return; }
+    setItems((its) => (its || []).map((it) =>
+      it.id === item.id ? { ...it, archivedAt: archived ? new Date().toISOString() : null } : it));
+    pushToast({ ok: true, message: archived ? `Archived ${item.id}` : `Restored ${item.id}` });
   }
   function editWorkItem(wiId: string, patch: Partial<WorkItem>) {
     void sendCmd(item.id, { kind: "wiUpdate", wiId, patch: toWire(patch) });
@@ -664,7 +674,7 @@ export default function App() {
             </div>}
           </div>
           <div className="itemtree scroll">
-            <Navigator mode={mode} meId={me.id} orgs={structure.orgs} projects={structure.projects} teams={structure.teams} items={items}
+            <Navigator mode={mode} meId={me.id} orgs={structure.orgs} projects={structure.projects} teams={structure.teams} items={activeItems}
               selId={selId} selTeamId={mode === "org" ? selTeamId : null} selOrgId={mode === "org" ? selOrgId : null}
               onSelect={selectItem} onSelectTeam={selectTeam} onSelectOrg={selectOrg}
               filter={filter} search={query} collapsed={collapsed} onToggle={toggleNode} />
@@ -674,14 +684,14 @@ export default function App() {
         {/* DASHBOARD — personalized default landing (admin sees full company rollup) */}
         {mode === "dashboard" &&
           <DashboardView me={me} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
-            items={items} announcements={announcements} canManage={isPM}
+            items={activeItems} announcements={announcements} canManage={isPM}
             onDeleteAnn={removeAnnouncement} annName={annName}
             onSelectItem={selectItem} onOpenWork={openFromBoard} />}
 
         {/* ORGANIZATION — tree selects an org (org detail/management) or a team (full TeamSpace) */}
         {mode === "org" && selTeam &&
           <main className="detail board-main">
-            <TeamSpace team={selTeam} orgs={structure.orgs} projects={structure.projects} items={items}
+            <TeamSpace team={selTeam} orgs={structure.orgs} projects={structure.projects} items={activeItems}
               users={users} canManage={isPM}
               onMove={moveWorkItemOn} onOpen={openFromBoard} onSelectItem={selectItem}
               onMemberOp={(u, op) => memberOp(selTeam.id, u, op)}
@@ -692,14 +702,14 @@ export default function App() {
           </main>}
         {mode === "org" && !selTeam &&
           <OrgView meId={me.id} selOrgId={selOrgId} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
-            items={items} announcements={announcements} canManage={isPM} onDeleteAnn={removeAnnouncement}
+            items={activeItems} announcements={announcements} canManage={isPM} onDeleteAnn={removeAnnouncement}
             onOpenWork={openFromBoard} onSelectTeam={selectTeam}
             onRenameOrg={orgRename} onDeleteOrg={orgDelete} />}
 
         {/* BOARD */}
         {mode === "projects" && view === "board" &&
           <main className="detail board-main">
-            <Board items={items} onMove={moveWorkItemOn} onOpen={openFromBoard} />
+            <Board items={activeItems} onMove={moveWorkItemOn} onOpen={openFromBoard} />
           </main>}
 
         {/* LIST */}
@@ -711,20 +721,20 @@ export default function App() {
         {/* TIMELINE */}
         {mode === "projects" && view === "timeline" &&
           <main className="detail board-main">
-            <TimelineView items={items} onSelect={(id) => { setSelId(id); setView("detail"); }} />
+            <TimelineView items={activeItems} onSelect={(id) => { setSelId(id); setView("detail"); }} />
           </main>}
 
         {/* CALENDAR */}
         {mode === "projects" && view === "calendar" &&
           <main className="detail board-main">
-            <CalendarView items={items}
+            <CalendarView items={activeItems}
               onOpen={(itemId, wiId) => { setSelId(itemId); if (wiId) setOpenWiId(wiId); else setView("detail"); }} />
           </main>}
 
         {/* PROJECT SUMMARY */}
         {mode === "projects" && view === "summary" &&
           <main className="detail board-main">
-            <ProjectSummaryView items={items} projects={structure.projects}
+            <ProjectSummaryView items={activeItems} projects={structure.projects}
               initialProjectId={item.project ?? null} canManage={isPM}
               onSelectItem={(id) => { setSelId(id); setView("detail"); }} />
           </main>}
@@ -745,6 +755,13 @@ export default function App() {
               <span className="id">{item.id}</span>
               <h1>{item.title}</h1>
               <StateBadge stateKey={snap.state} />
+              {item.archivedAt && <span className="kpill" title={`archived ${item.archivedAt}`}>🗃 archived</span>}
+              {isPM &&
+                <button className="act" style={{ marginLeft: 6 }}
+                  title={item.archivedAt ? "Restore — show this item in views again" : "Archive — hide from boards and views (history kept)"}
+                  onClick={() => void archiveItem(!item.archivedAt)}>
+                  {item.archivedAt ? "↩ Restore" : "🗃 Archive"}
+                </button>}
             </div>
             <div className="dh-meta">
               <span className="chip" style={{ background: "var(--surface-2)", color: "var(--text-2)", border: "1px solid var(--border)" }}>{(WI_TYPES[item.type] || WI_TYPES.feature).label}</span>

@@ -169,6 +169,7 @@ export interface Item {
   parent: string | null;
   project?: string | null;       // owning project id (items.project_id)
   fixVersion?: string | null;    // release membership (items.fix_version — metadata, not lifecycle)
+  archivedAt?: string | null;    // ISO date-time when archived (items.archived_at) — hidden from views by default
   type: WiType;
   stakeholders: Stakeholder[];
   workItems: WorkItem[];

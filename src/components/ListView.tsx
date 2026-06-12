@@ -43,6 +43,7 @@ export function ListView({ items, onMove, onOpen, onImport }: ListViewProps) {
   const [filterErr, setFilterErr] = useState<string | null>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   async function onPickCsv(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -64,8 +65,10 @@ export function ListView({ items, onMove, onOpen, onImport }: ListViewProps) {
   }, []);
 
   const all: Row[] = useMemo(
-    () => items.flatMap((it) => deriveItem(it).workItems.map((wi) => ({ itemId: it.id, itemTitle: it.title, wi }))),
-    [items],
+    () => items
+      .filter((it) => showArchived || !it.archivedAt)
+      .flatMap((it) => deriveItem(it).workItems.map((wi) => ({ itemId: it.id, itemTitle: it.title, wi }))),
+    [items, showArchived],
   );
   const assignees = useMemo(
     () => Array.from(new Set(all.map((r) => r.wi.assignee).filter(Boolean))).sort(),
@@ -147,6 +150,9 @@ export function ListView({ items, onMove, onOpen, onImport }: ListViewProps) {
             <option value="">All assignees</option>
             {assignees.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> archived
+          </label>
         </div>
         <div className="board-filters" style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 8, alignItems: "center" }}>
           <select value={filterId} aria-label="Saved filter"
