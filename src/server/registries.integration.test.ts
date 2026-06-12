@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -180,5 +180,26 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     const again = await tok.createToken(maya, "doomed", "write");
     await admin.query("DELETE FROM api_tokens WHERE user_id = ?", [maya]); // simulate cascade scope
     expect(await tok.tokenUser(again.token)).toBeNull();
+  });
+
+  it("webhooks: kind matching, secret never listed, dead-letter after 10 straight failures", async () => {
+    const wh = await import("./repo/webhooks");
+    const made = await wh.createWebhook("https://example.test/hook", ["TRANSITION", "WI_UPDATE"]);
+    const all = await wh.createWebhook("https://example.test/all", []);
+    expect(made.secret).toHaveLength(48);
+
+    expect((await wh.webhookTargets("TRANSITION")).map((h) => h.id).sort())
+      .toEqual([made.id, all.id].sort());
+    expect((await wh.webhookTargets("WI_CREATE")).map((h) => h.id)).toEqual([all.id]); // '*' only
+    expect(JSON.stringify(await wh.listWebhooks())).not.toContain(made.secret);
+
+    for (let i = 0; i < 9; i++) await wh.recordWebhookResult(made.id, false);
+    expect((await wh.webhookTargets("TRANSITION")).some((h) => h.id === made.id)).toBe(true); // 9 < 10
+    await wh.recordWebhookResult(made.id, true); // success resets the streak
+    for (let i = 0; i < 10; i++) await wh.recordWebhookResult(made.id, false);
+    expect((await wh.webhookTargets("TRANSITION")).some((h) => h.id === made.id)).toBe(false); // dead
+
+    expect(await wh.deleteWebhook(all.id)).toBe(true);
+    expect(await wh.deleteWebhook(all.id)).toBe(false);
   });
 });
