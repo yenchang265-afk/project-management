@@ -2,13 +2,18 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/server/auth";
 import { createAttachment, listAttachments } from "@/server/repo/attachments";
 import { deleteAttachment } from "@/server/repo/attachments";
+import { getItem } from "@/server/repo/items";
+import { getScope, itemInScope } from "@/server/scope";
 import { MAX_ATTACHMENT_BYTES, removeUpload, saveUpload } from "@/server/uploads";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /** GET /api/items/:id/attachments[?wiId=…] — metadata list. */
-export const GET = withAuth<Ctx>(async (req, _user, ctx) => {
+export const GET = withAuth<Ctx>(async (req, user, ctx) => {
   const { id } = await ctx.params;
+  const [found, scope] = await Promise.all([getItem(id), getScope(user)]);
+  if (!found || !itemInScope(found.item.project ?? null, scope))
+    return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
   const wiId = (new URL(req.url).searchParams.get("wiId") ?? "").trim() || undefined;
   const attachments = await listAttachments(id, wiId);
   return NextResponse.json({ success: true, data: { attachments } });
@@ -20,6 +25,9 @@ export const GET = withAuth<Ctx>(async (req, _user, ctx) => {
  *  so a lying type can't turn into same-origin script execution. */
 export const POST = withAuth<Ctx>(async (req, user, ctx) => {
   const { id } = await ctx.params;
+  const [found, scope] = await Promise.all([getItem(id), getScope(user)]);
+  if (!found || !itemInScope(found.item.project ?? null, scope))
+    return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
   let form: FormData;
   try { form = await req.formData(); } catch {
     return NextResponse.json({ success: false, error: "Expected multipart form data." }, { status: 400 });

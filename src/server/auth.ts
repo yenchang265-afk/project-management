@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
@@ -14,7 +14,7 @@ const RENEW_BELOW_DAYS = 6; // sliding window: extend when less than this remain
 export interface AuthedUser { id: string; email: string; name: string; role: Role; }
 
 function sha256(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
+  return createHmac("sha256", env().SESSION_SECRET).update(s).digest("hex");
 }
 
 /* ---------- credentials ---------- */

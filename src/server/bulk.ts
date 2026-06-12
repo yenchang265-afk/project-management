@@ -5,9 +5,11 @@
 import type { PdlcEvent } from "@/lib/engine";
 import type { AuthedUser } from "./auth";
 import type { BulkOp } from "./commands";
+import { runAutomation } from "./automation";
 import { notifyAfterCommand } from "./notify";
 import { applyCommand, getItem } from "./repo/items";
 import { getScope, itemInScope } from "./scope";
+import { fireWebhooks } from "./webhook-dispatch";
 
 export interface BulkOpResult {
   itemId: string;
@@ -31,8 +33,10 @@ export async function runBulkOps(user: AuthedUser, ops: BulkOp[]): Promise<BulkO
     const out = await applyCommand(op.itemId, op.expectedVersion, op.command, user.name, user.role);
     switch (out.status) {
       case "ok":
-        // best-effort fan-out: watchers/@mentions — never blocks or fails the op
+        // best-effort fan-out: watchers/@mentions + webhooks — never blocks or fails the op
         void notifyAfterCommand(found.item, out.event);
+        void fireWebhooks(out.event);
+        void runAutomation(op.itemId, out.event);
         results.push({ itemId: op.itemId, status: "ok", version: out.version, event: out.event });
         break;
       case "stale":
