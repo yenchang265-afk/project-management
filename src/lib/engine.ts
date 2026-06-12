@@ -810,7 +810,7 @@ function parentWiError(snap: Snapshot, parentWiId: string, selfId?: string): str
 
 export function createWorkItem(
   item: Item, snap: Snapshot,
-  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string; parentWiId?: string; dueDate?: string; component?: string },
+  draft: { type: WiType; title: string; assignee: string; state?: WiState; phase?: WiPhase; sprint?: string; parentWiId?: string; dueDate?: string; component?: string; tags?: string[] },
   actor: string, role: Role
 ): WiResult {
   const title = (draft.title || "").trim();
@@ -842,6 +842,10 @@ export function createWorkItem(
   if (draft.dueDate !== undefined) wi.dueDate = draft.dueDate;
   const component = (draft.component || "").trim();
   if (component) wi.component = component;
+  if (draft.tags !== undefined) {
+    const norm = normalizeTags(draft.tags);
+    if (norm.length) wi.tags = norm;
+  }
   return { ok: true, event: ev(item.id, "WI_CREATE", actor, role, { wiId: id, wi }) };
 }
 

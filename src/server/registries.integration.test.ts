@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["item_goals", "goals", "webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["forms", "item_goals", "goals", "webhooks", "api_tokens", "versions", "attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -201,6 +201,24 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
 
     expect(await wh.deleteWebhook(all.id)).toBe(true);
     expect(await wh.deleteWebhook(all.id)).toBe(false);
+  });
+
+  it("forms: tokened lookup respects enabled flag; cascade on item delete", async () => {
+    const forms = await import("./repo/forms");
+    await admin.query(
+      "INSERT INTO items (id, title, area, priority, parent, type, stakeholders, work_items) VALUES ('FORM-1', 'T', 'A', 'High', NULL, 'feature', '[]', '[]')");
+    expect((await forms.createForm("FORM-nope", "x")).ok).toBe(false);
+    const made = await forms.createForm("FORM-1", "Support intake");
+    expect(made.ok).toBe(true);
+    if (!made.ok) return;
+    const row = (await forms.listForms()).find((f) => f.id === made.id)!;
+    expect(row.publicToken).toMatch(/^[0-9a-f]{48}$/);
+    expect(await forms.formByToken(row.publicToken)).toMatchObject({ itemId: "FORM-1", enabled: true });
+    expect(await forms.formByToken("0".repeat(48))).toBeNull();
+    await admin.query("UPDATE forms SET enabled = 0 WHERE id = ?", [made.id]);
+    expect(await forms.formByToken(row.publicToken)).toBeNull(); // disabled = dead link
+    await admin.query("DELETE FROM items WHERE id = 'FORM-1'");
+    expect((await forms.listForms()).some((f) => f.id === made.id)).toBe(false); // cascaded
   });
 
   it("goals: unique titles, idempotent membership, cascade on goal and item delete", async () => {

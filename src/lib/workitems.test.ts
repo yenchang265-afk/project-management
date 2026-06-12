@@ -632,3 +632,14 @@ describe("component field", () => {
     expect(snap.workItems.find((w) => w.id === r.event.wiId)!.component).toBe("Billing");
   });
 });
+
+describe("tags on create (intake forms label submissions)", () => {
+  it("createWorkItem normalizes and carries tags", () => {
+    const item = makeItem();
+    const r = createWorkItem(item, deriveItem(item), { type: "task", title: "t", assignee: "", tags: [" intake ", "intake", "web"] }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const w = deriveItem(withEvent(item, r.event)).workItems.find((x) => x.id === r.event.wiId)!;
+    expect(w.tags).toEqual(["intake", "web"]);
+  });
+});

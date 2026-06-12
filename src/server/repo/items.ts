@@ -103,6 +103,27 @@ export async function applyCommand(
   });
 }
 
+/** System append (intake forms): like applyCommand, but the server reads the
+ *  current version itself under the row lock — public submitters can't know
+ *  (and must not learn) an item's version. */
+export async function applyCommandAsSystem(
+  itemId: string, cmd: Command, actor: string, role: Role
+): Promise<AppendOutcome> {
+  return withTransaction(async (conn) => {
+    const [lock] = await conn.query<ItemRow[]>("SELECT id FROM items WHERE id = ? FOR UPDATE", [itemId]);
+    if (!lock[0]) return { status: "not_found" as const };
+    const loaded = await getItem(itemId, conn);
+    if (!loaded) return { status: "not_found" as const };
+    const result = runCommand(loaded.item, cmd, actor, role);
+    if (!result.ok) return { status: "rejected" as const, result };
+    const r = eventToRow(result.event);
+    await conn.query(
+      "INSERT INTO events (id, item_id, type, actor, role, ts, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [r.id, r.item_id, r.type, r.actor, r.role, r.ts, r.payload]);
+    return { status: "ok" as const, event: result.event, version: loaded.version + 1 };
+  });
+}
+
 export type SpawnOutcome =
   | { status: "ok"; child: Item; parentEvent: PdlcEvent; parentVersion: number }
   | { status: "stale"; item: Item; version: number }

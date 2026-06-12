@@ -60,6 +60,7 @@ export const CommandSchema = z.discriminatedUnion("kind", [
       parentWiId: z.string().max(32).optional(),
       dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Due date must be YYYY-MM-DD.").optional(),
       component: z.string().max(80).optional(),
+      tags: z.array(z.string().max(40)).max(50).optional(),
     }).strict(),
   }).strict(),
   z.object({ kind: z.literal("wiUpdate"), wiId: z.string().max(32), patch: WiPatchSchema }).strict(),
