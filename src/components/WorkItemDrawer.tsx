@@ -9,7 +9,10 @@ import {
   type WiState, type WiType, type WorkItem,
 } from "@/lib/engine";
 import { timeAgo } from "@/lib/format";
-import { fetchComponents, fetchFieldDefs, fetchLabels, type FieldDefInfo } from "@/lib/api";
+import {
+  deleteAttachment, fetchAttachments, fetchComponents, fetchFieldDefs, fetchLabels,
+  uploadAttachment, type AttachmentInfo, type FieldDefInfo,
+} from "@/lib/api";
 import { Avatar, TypeBox, WI_STATES, WI_TYPES } from "./badges";
 
 const WI_TYPE_OPTS: WiType[] = ["story", "task", "bug"];
@@ -53,6 +56,39 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
   const [labelNames, setLabelNames] = useState<string[]>([]);
   const [componentNames, setComponentNames] = useState<string[]>([]);
   const [fieldDefs, setFieldDefs] = useState<FieldDefInfo[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([]);
+  const [attErr, setAttErr] = useState<string | null>(null);
+  const [attBusy, setAttBusy] = useState(false);
+
+  async function reloadAttachments() {
+    const r = await fetchAttachments(item.id, wiId);
+    if (r.ok) setAttachments(r.data.attachments);
+  }
+
+  useEffect(() => {
+    let stale = false;
+    fetchAttachments(item.id, wiId).then((r) => { if (!stale && r.ok) setAttachments(r.data.attachments); });
+    return () => { stale = true; };
+  }, [item.id, wiId]);
+
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    setAttBusy(true);
+    const r = await uploadAttachment(item.id, file, wiId);
+    setAttBusy(false);
+    if (!r.ok) { setAttErr(r.error); return; }
+    setAttErr(null);
+    void reloadAttachments();
+  }
+
+  async function onDeleteAttachment(id: string) {
+    const r = await deleteAttachment(id);
+    if (!r.ok) { setAttErr(r.error); return; }
+    setAttErr(null);
+    void reloadAttachments();
+  }
 
   // registries feed pickers only — work items keep storing plain strings
   useEffect(() => {
@@ -351,6 +387,27 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
                 onChange={(e) => setCfVal(e.target.value)} style={{ flex: 1 }} />
               <button className="wi-act ok" title="Set field" onClick={addCustomField} disabled={!cfKey.trim() || !cfVal.trim()}>＋</button>
             </div>
+          </div>
+
+          <div className="wi-field block"><span>Attachments <span className="wi-cc">{attachments.length}</span></span>
+            <div className="wi-links">
+              {attachments.length === 0 && <div className="wi-empty">No attachments.</div>}
+              {attachments.map((a) => (
+                <div className="wi-link-row" key={a.id}>
+                  <a className="wi-link-title" href={`/api/attachments/${encodeURIComponent(a.id)}`}
+                    title={`${a.filename} · ${(a.size / 1024).toFixed(1)} KB · ${a.uploader}`}>
+                    📎 {a.filename}
+                  </a>
+                  <span className="mono" style={{ color: "var(--text-3)", fontSize: 10 }}>{(a.size / 1024).toFixed(1)} KB</span>
+                  <button className="wi-act del" title={`Delete ${a.filename}`} onClick={() => void onDeleteAttachment(a.id)}>✕</button>
+                </div>
+              ))}
+            </div>
+            <div className="wi-link-add">
+              <input type="file" aria-label="Upload attachment" disabled={attBusy} onChange={(e) => void onPickFile(e)} />
+              {attBusy && <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>uploading…</span>}
+            </div>
+            {attErr && <div className="mono" style={{ color: "var(--danger, #c33)", fontSize: 11, paddingTop: 4 }}>⚠ {attErr}</div>}
           </div>
 
           <div className="wi-field block"><span>Links <span className="wi-cc">{links.length + incoming.length}</span></span>

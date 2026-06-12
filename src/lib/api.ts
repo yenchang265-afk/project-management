@@ -13,9 +13,12 @@ export type ApiResult<T> =
 async function call<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   let res: Response;
   try {
+    // FormData bodies must NOT get a JSON content-type — the browser sets the
+    // multipart boundary itself.
+    const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
     res = await fetch(path, {
       ...init,
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+      headers: isForm ? init?.headers : { "Content-Type": "application/json", ...(init?.headers || {}) },
     });
   } catch {
     return { ok: false, status: 0, error: "Network error — is the server running?" };
@@ -172,6 +175,28 @@ export const createComponent = (projectId: string, name: string) =>
   call<{ id: string }>("/api/components", { method: "POST", body: JSON.stringify({ projectId, name }) });
 export const deleteComponent = (id: string) =>
   call<Record<string, never>>(`/api/components/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/* ---------- Attachments (metadata; bytes served via /api/attachments/:id) ---------- */
+export interface AttachmentInfo {
+  id: string; itemId: string; wiId: string | null;
+  filename: string; mime: string; size: number; uploader: string;
+}
+
+export const fetchAttachments = (itemId: string, wiId?: string) =>
+  call<{ attachments: AttachmentInfo[] }>(
+    `/api/items/${encodeURIComponent(itemId)}/attachments${wiId ? `?wiId=${encodeURIComponent(wiId)}` : ""}`);
+
+export const uploadAttachment = (itemId: string, file: File, wiId?: string) => {
+  const form = new FormData();
+  form.append("file", file);
+  if (wiId) form.append("wiId", wiId);
+  return call<{ id: string }>(`/api/items/${encodeURIComponent(itemId)}/attachments`, {
+    method: "POST", body: form, // call() skips the JSON content-type for FormData
+  });
+};
+
+export const deleteAttachment = (id: string) =>
+  call<Record<string, never>>(`/api/attachments/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 /* ---------- Global audit log (PM only; seq-keyed pagination, newest first) ---------- */
 export interface AuditEventInfo {

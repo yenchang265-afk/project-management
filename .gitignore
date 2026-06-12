@@ -20,3 +20,6 @@ playwright-report/
 .env
 .env.local
 .env.*.local
+
+# Uploaded attachments (runtime data)
+var/

@@ -24,7 +24,7 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
     admin = await mysql.createConnection({ uri: testUrl!, multipleStatements: true });
     // fresh schema: drop in FK order, re-apply every migration in filename order
     await admin.query("SET FOREIGN_KEY_CHECKS=0");
-    for (const t of ["field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
+    for (const t of ["attachments", "field_defs", "labels", "components", "filters", "events", "sessions", "sprints",
                      "notifications", "team_members", "project_teams", "teams", "organizations",
                      "announcements", "projects", "users", "items", "schema_migrations"])
       await admin.query(`DROP TABLE IF EXISTS ${t}`);
@@ -99,5 +99,28 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
 
     expect((await fields.deleteFieldDef("fld-team-area")).ok).toBe(true);
     expect((await fields.deleteFieldDef("fld-team-area")).ok).toBe(false);
+  });
+
+  it("attachments: rows scoped by item/wi, unknown item rejected, cascade on item delete", async () => {
+    const att = await import("./repo/attachments");
+    await admin.query(
+      "INSERT INTO items (id, title, area, priority, parent, type, stakeholders, work_items) VALUES ('ATT-1', 'T', 'A', 'High', NULL, 'feature', '[]', '[]')");
+
+    expect((await att.createAttachment("ATT-nope", null, "a.txt", "text/plain", 3, "Maya Chen")).ok).toBe(false);
+    const r1 = await att.createAttachment("ATT-1", null, "spec.pdf", "application/pdf", 100, "Maya Chen");
+    const r2 = await att.createAttachment("ATT-1", "ATT-1-W1", "log.txt", "text/plain", 10, "Priya Patel");
+    expect(r1.ok && r2.ok).toBe(true);
+    if (!r1.ok || !r2.ok) return;
+
+    // same-second created_at makes relative order nondeterministic — compare sorted
+    expect((await att.listAttachments("ATT-1")).map((a) => a.filename).sort()).toEqual(["log.txt", "spec.pdf"]);
+    expect((await att.listAttachments("ATT-1", "ATT-1-W1")).map((a) => a.filename)).toEqual(["log.txt"]);
+    const one = await att.getAttachment(r1.id);
+    expect(one).toMatchObject({ filename: "spec.pdf", mime: "application/pdf", size: 100, uploader: "Maya Chen", wiId: null });
+
+    expect((await att.deleteAttachment(r2.id)).ok).toBe(true);
+    expect((await att.deleteAttachment(r2.id)).ok).toBe(false); // already gone
+    await admin.query("DELETE FROM items WHERE id = 'ATT-1'");
+    expect(await att.getAttachment(r1.id)).toBeNull(); // cascaded
   });
 });
