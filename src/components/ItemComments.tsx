@@ -5,6 +5,7 @@ import type { Snapshot } from "@/lib/engine";
 import { timeAgo } from "@/lib/format";
 import { Avatar } from "./badges";
 import { AiSuggestButton } from "./AiSuggestButton";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 /* Item-level discussion thread — chronological fold of ITEM_COMMENT events
    (snap.comments, derived in deriveItem). Posting goes through the command
@@ -21,12 +22,7 @@ export function ItemComments({ snap, onComment }: { snap: Snapshot; onComment: (
   }
 
   return (
-    <div className="card">
-      <div className="card-h">
-        <h3>Comments <span className="wi-cc">{comments.length}</span></h3>
-        <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>append-only · derived from events</span>
-      </div>
-      <div className="card-b">
+    <CollapsibleCard title={<>Comments <span className="wi-cc">{comments.length}</span></>} sub="append-only · derived from events">
         <div className="wi-comments">
           {comments.length === 0 && <div className="wi-empty">No comments yet.</div>}
           {comments.map((c) => (
@@ -49,7 +45,6 @@ export function ItemComments({ snap, onComment }: { snap: Snapshot; onComment: (
         {comments.length > 0 &&
           <AiSuggestButton label="Summarize discussion"
             payload={{ kind: "comment_summary", comments }} />}
-      </div>
-    </div>
+    </CollapsibleCard>
   );
 }

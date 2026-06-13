@@ -1,6 +1,7 @@
 "use client";
 
 import { SUBTRACK_FLOW, SUBTRACK_LABELS, type Role, type Snapshot, type SubtrackState, type TrackKey } from "@/lib/engine";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 /* ---------------- SUB-TRACKS ---------------- */
 interface SubTracksProps {
@@ -16,12 +17,8 @@ export function SubTracks({ snap, role, onSubtrack }: SubTracksProps) {
   ];
   const flowKeys: SubtrackState[] = ["pending", "in_review", "changes_requested", "approved"];
   return (
-    <div className="card">
-      <div className="card-h">
-        <h3>Parallel reviews</h3>
-        <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>concurrent · feeds release gate</span>
-      </div>
-      <div className="card-b stack" style={{ gap: 11 }}>
+    <CollapsibleCard title="Parallel reviews" sub="concurrent · feeds release gate">
+      <div className="stack" style={{ gap: 11 }}>
         {tracks.map((t) => {
           const cur = snap.subtracks[t.key];
           const next = SUBTRACK_FLOW[cur] || [];
@@ -65,6 +62,6 @@ export function SubTracks({ snap, role, onSubtrack }: SubTracksProps) {
           );
         })}
       </div>
-    </div>
+    </CollapsibleCard>
   );
 }

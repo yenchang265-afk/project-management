@@ -40,6 +40,11 @@ export function Board({ items, onMove, onOpen }: BoardProps) {
   // WIP limits: per-column caps, client-persisted (UI config, never block a move)
   const [wipLimits, setWipLimits] = useState<WipLimits>({});
   const [editWip, setEditWip] = useState(false);
+  // collapsed swimlanes (per feature row) — hide a feature's cards to focus the board
+  const [collapsedLanes, setCollapsedLanes] = useState<Set<string>>(() => new Set());
+  const toggleLane = (id: string) => setCollapsedLanes((s) => {
+    const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n;
+  });
 
   useEffect(() => {
     try {
@@ -188,16 +193,21 @@ export function Board({ items, onMove, onOpen }: BoardProps) {
 
       <div className="board-rows scroll">
         {rows.length === 0 && <div className="wi-empty board-empty">No work items match the current filters.</div>}
-        {rows.map((r) => (
-          <div className="board-row" key={r.item.id}>
-            <div className="board-lane-label">
+        {rows.map((r) => {
+          const laneCollapsed = collapsedLanes.has(r.item.id);
+          return (
+          <div className="board-row" key={r.item.id} data-collapsed={laneCollapsed}>
+            <button className="board-lane-label" onClick={() => toggleLane(r.item.id)}
+              title={laneCollapsed ? "Expand swimlane" : "Collapse swimlane"}>
+              <span className="lane-chev" data-open={!laneCollapsed} aria-hidden="true">▸</span>
               <TypeBox type={r.item.type} size={16} />
               <div>
                 <div className="board-lane-id mono">{r.item.id}</div>
                 <div className="board-lane-title">{r.item.title}</div>
+                {laneCollapsed && <div className="board-lane-sub mono">{r.wis.length} item{r.wis.length === 1 ? "" : "s"}</div>}
               </div>
-            </div>
-            {COLUMNS.map((c) => (
+            </button>
+            {!laneCollapsed && COLUMNS.map((c) => (
               <div key={c} className="board-cell" data-state={c}
                 onDragOver={(e) => e.preventDefault()} onDrop={(e) => drop(e, c)}>
                 {r.wis.filter((w) => w.state === c).map((w) => (
@@ -225,7 +235,8 @@ export function Board({ items, onMove, onOpen }: BoardProps) {
               </div>
             ))}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

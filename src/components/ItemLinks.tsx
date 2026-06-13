@@ -5,6 +5,7 @@ import {
   ITEM_LINK_KINDS, ITEM_LINK_LABELS, itemInboundLinks,
   type Item, type ItemLinkKind, type Snapshot,
 } from "@/lib/engine";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 /* Cross-item links (ITEM_LINK / ITEM_UNLINK events, derived into snap.links).
    Informational v1 — links never gate spine transitions. Outgoing links are
@@ -44,12 +45,7 @@ export function ItemLinks({ item, snap, all, onLink, onUnlink }: ItemLinksProps)
   const count = snap.links.length + inbound.length;
 
   return (
-    <div className="card">
-      <div className="card-h">
-        <h3>Links <span className="wi-cc">{count}</span></h3>
-        <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>informational · never gates</span>
-      </div>
-      <div className="card-b">
+    <CollapsibleCard title={<>Links <span className="wi-cc">{count}</span></>} sub="informational · never gates">
         <div className="item-links">
           {count === 0 && <div className="wi-empty">No links yet.</div>}
           {snap.links.map((l) => (
@@ -88,7 +84,6 @@ export function ItemLinks({ item, snap, all, onLink, onUnlink }: ItemLinksProps)
           </select>
           <button className="act primary" onClick={add} disabled={!draftTarget}>Link</button>
         </div>
-      </div>
-    </div>
+    </CollapsibleCard>
   );
 }
