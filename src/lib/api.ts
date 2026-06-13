@@ -89,6 +89,15 @@ export const setAutomationEnabled = (id: string, enabled: boolean) =>
   call<Record<string, never>>(`/api/automations/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
 export const deleteAutomation = (id: string) =>
   call<Record<string, never>>(`/api/automations/${id}`, { method: "DELETE" });
+
+/* ---------- AI suggestions (G-27, advisory; server gated by ANTHROPIC_API_KEY) ---------- */
+export type AiSuggestPayload =
+  | { kind: "comment_summary"; comments: { id: string; author: string; role: Role; ts: number; text: string }[] }
+  | { kind: "risk_flags"; title: string; description?: string }
+  | { kind: "sprint_narrative"; sprint: string; committed: number; completed: number; spilled: number }
+  | { kind: "assignment"; title: string; description?: string; candidates: { name: string; load: number }[] };
+export const aiSuggest = (payload: AiSuggestPayload) =>
+  call<{ text: string }>("/api/ai/suggest", { method: "POST", body: JSON.stringify(payload) });
 export const logout = () => call<Record<string, never>>("/api/auth/logout", { method: "POST" });
 
 export function postCommand(itemId: string, command: unknown, expectedVersion: number) {

@@ -13,6 +13,7 @@
     "db:seed": "tsx scripts/db-seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
     "bcryptjs": "^3.0.3",
     "mysql2": "^3.22.5",
     "next": "^15.1.6",
