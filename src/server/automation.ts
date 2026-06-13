@@ -17,6 +17,7 @@ const AUTOMATION_ACTOR_PREFIX = "automation:";
 /** Schedule trigger kind — rules that run on a tick instead of on an event. */
 export const SCHEDULE_TRIGGER = "SCHEDULE";
 
+
 function toCommand(action: AutomationAction, wiId: string | undefined): Command | null {
   switch (action.kind) {
     case "wiMove":
@@ -114,6 +115,7 @@ export async function runScheduledAutomations(): Promise<{ rules: number; action
   }
   return { rules: rules.length, actions: actionCount };
 }
+
 
 /** Entry point — callers `void` this; it must never throw into the route. */
 export async function runAutomation(itemId: string, event: PdlcEvent): Promise<void> {
