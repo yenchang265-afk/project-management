@@ -115,3 +115,56 @@ describe("planNotifications", () => {
       expect(r.message.length).toBeLessThanOrEqual(300);
   });
 });
+
+/* ---------- WI_COMMENT: comments on a work item ---------- */
+const WI = (id: string, assignee: string) =>
+  ({ id, type: "task" as const, title: id, state: "todo" as const, assignee });
+function watchedItemWithWi(workItems: ReturnType<typeof WI>[]): Item {
+  return { ...watchedItem(), workItems };
+}
+
+describe("planNotifications — WI_COMMENT", () => {
+  it("notifies the work item's assignee + item watchers + @mentions; excludes the actor", () => {
+    const item = watchedItemWithWi([WI("PAY-418", "Priya Patel")]);
+    const event = E("WI_COMMENT", "Maya Chen", { wiId: "PAY-418", text: "please review" });
+    const rows = planNotifications(item, event, USERS);
+    const byUser = Object.fromEntries(rows.map((r) => [r.userId, r]));
+    expect(rows).toHaveLength(2);
+    expect(byUser["u-sam"].kind).toBe("comment");    // item watcher
+    expect(byUser["u-priya"].kind).toBe("comment");  // WI assignee (not watching)
+    expect(byUser["u-maya"]).toBeUndefined();        // actor (also a watcher) excluded
+    expect(byUser["u-priya"].message).toContain("PAY-418");
+  });
+
+  it("@mention wins over assignee/watcher (one row each)", () => {
+    const item = watchedItemWithWi([WI("PAY-418", "Priya Patel")]);
+    const event = E("WI_COMMENT", "Maya Chen", { wiId: "PAY-418", text: "over to you @Priya Patel" });
+    const rows = planNotifications(item, event, USERS);
+    expect(rows.filter((r) => r.userId === "u-priya")).toHaveLength(1);
+    expect(rows.find((r) => r.userId === "u-priya")!.kind).toBe("mention");
+  });
+
+  it("never notifies the actor even when they are the assignee", () => {
+    const item = watchedItemWithWi([WI("PAY-418", "Maya Chen")]);
+    const event = E("WI_COMMENT", "Maya Chen", { wiId: "PAY-418", text: "self note" });
+    const rows = planNotifications(item, event, USERS);
+    expect(rows.some((r) => r.userId === "u-maya")).toBe(false);
+    expect(rows.map((r) => r.userId)).toEqual(["u-sam"]); // other watcher still notified
+  });
+
+  it("a comment on an unknown work item still notifies watchers + @mentions (no assignee)", () => {
+    const item = watchedItem(); // no work items
+    const event = E("WI_COMMENT", "Maya Chen", { wiId: "GONE-1", text: "thoughts @Priya Patel?" });
+    const rows = planNotifications(item, event, USERS);
+    const byUser = Object.fromEntries(rows.map((r) => [r.userId, r]));
+    expect(byUser["u-sam"].kind).toBe("comment");
+    expect(byUser["u-priya"].kind).toBe("mention");
+  });
+
+  it("messages stay within the 300-char DB column", () => {
+    const item = watchedItemWithWi([WI("PAY-418", "Priya Patel")]);
+    const event = E("WI_COMMENT", "Maya Chen", { wiId: "PAY-418", text: "x".repeat(2000) });
+    for (const r of planNotifications(item, event, USERS))
+      expect(r.message.length).toBeLessThanOrEqual(300);
+  });
+});
