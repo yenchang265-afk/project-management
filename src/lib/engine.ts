@@ -589,8 +589,8 @@ export function gateStatus(gateKey: GateKey, snap: Snapshot): GateStatus {
 /* =======================================================================
    APPLY — the transition engine. Returns {ok, event} or a TYPED rejection.
    ======================================================================= */
-export function legalTransitions(fromState: StateKey): TransitionDef[] {
-  return TRANSITIONS.filter((t) => t.from === fromState);
+export function legalTransitions(fromState: StateKey, transitions: TransitionDef[] = TRANSITIONS): TransitionDef[] {
+  return transitions.filter((t) => t.from === fromState);
 }
 
 export function applyTransition(
@@ -598,11 +598,12 @@ export function applyTransition(
   toState: StateKey,
   actor: string,
   role: Role,
-  reason: string | null
+  reason: string | null,
+  transitions: TransitionDef[] = TRANSITIONS
 ): TransitionResult {
   const snap = deriveItem(item);
   const from = snap.state;
-  const def = TRANSITIONS.find((t) => t.from === from && t.to === toState);
+  const def = transitions.find((t) => t.from === from && t.to === toState);
 
   if (!def)
     return rej("ILLEGAL_TRANSITION", `No transition from “${label(from)}” to “${label(toState)}”.`, { from, to: toState });

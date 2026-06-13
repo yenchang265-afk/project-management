@@ -5,6 +5,7 @@ import type { Item, PdlcEvent, Role } from "@/lib/engine";
 import { fromJson, pool, withTransaction } from "../db";
 import { eventToRow } from "../seed-db";
 import { runCommand, type Command, type CommandResult } from "../commands";
+import { getProjectTransitions } from "./workflows";
 
 interface ItemRow extends RowDataPacket {
   id: string; title: string; area: string; priority: Item["priority"];
@@ -92,7 +93,8 @@ export async function applyCommand(
     if (loaded.version !== expectedVersion)
       return { status: "stale" as const, item: loaded.item, version: loaded.version };
 
-    const result = runCommand(loaded.item, cmd, actor, role);
+    const transitions = await getProjectTransitions(loaded.item.project, conn);
+    const result = runCommand(loaded.item, cmd, actor, role, transitions);
     if (!result.ok) return { status: "rejected" as const, result };
 
     const r = eventToRow(result.event);
@@ -114,7 +116,8 @@ export async function applyCommandAsSystem(
     if (!lock[0]) return { status: "not_found" as const };
     const loaded = await getItem(itemId, conn);
     if (!loaded) return { status: "not_found" as const };
-    const result = runCommand(loaded.item, cmd, actor, role);
+    const transitions = await getProjectTransitions(loaded.item.project, conn);
+    const result = runCommand(loaded.item, cmd, actor, role, transitions);
     if (!result.ok) return { status: "rejected" as const, result };
     const r = eventToRow(result.event);
     await conn.query(

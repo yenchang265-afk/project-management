@@ -12,6 +12,7 @@ const PM_ONLY = [
   "manage_sprints",
   "manage_announcements",
   "manage_metadata",
+  "manage_workflows",
   "view_audit",
   "assign_item_project",
   "spawn_iteration",

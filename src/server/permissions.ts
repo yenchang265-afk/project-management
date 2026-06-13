@@ -13,6 +13,7 @@ export const PERMISSIONS = {
   manage_sprints: ["PM"],
   manage_announcements: ["PM"],
   manage_metadata: ["PM"],   // labels, components, custom-field defs
+  manage_workflows: ["PM"],  // per-project workflow schemes (G-13)
   view_audit: ["PM"],        // global cross-item audit log
   assign_item_project: ["PM"],
   spawn_iteration: ["PM"],
