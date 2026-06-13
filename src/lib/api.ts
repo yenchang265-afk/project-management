@@ -69,6 +69,26 @@ export const deleteWorkflowScheme = (id: string) =>
   call<Record<string, never>>(`/api/workflow-schemes/${id}`, { method: "DELETE" });
 export const assignWorkflowScheme = (projectId: string, schemeId: string | null) =>
   call<Record<string, never>>(`/api/projects/${projectId}/workflow-scheme`, { method: "PUT", body: JSON.stringify({ schemeId }) });
+
+/* ---------- automation rules (G-14 builder) ---------- */
+export type AutomationActionInfo =
+  | { kind: "wiMove"; to: string }
+  | { kind: "wiComment"; text: string }
+  | { kind: "itemComment"; text: string }
+  | { kind: "wiUpdate"; patch: Record<string, unknown> };
+export interface AutomationRuleInfo {
+  id: string; name: string; triggerKind: string; cql: string | null;
+  actions: AutomationActionInfo[]; enabled: boolean;
+}
+export interface AutomationRunInfo { ruleId: string; eventId: string; ok: boolean; detail: string | null; at: string; }
+export const fetchAutomations = () =>
+  call<{ rules: AutomationRuleInfo[]; runs: AutomationRunInfo[] }>("/api/automations");
+export const createAutomation = (name: string, triggerKind: string, cql: string | null, actions: AutomationActionInfo[]) =>
+  call<{ id: string }>("/api/automations", { method: "POST", body: JSON.stringify({ name, triggerKind, cql, actions }) });
+export const setAutomationEnabled = (id: string, enabled: boolean) =>
+  call<Record<string, never>>(`/api/automations/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+export const deleteAutomation = (id: string) =>
+  call<Record<string, never>>(`/api/automations/${id}`, { method: "DELETE" });
 export const logout = () => call<Record<string, never>>("/api/auth/logout", { method: "POST" });
 
 export function postCommand(itemId: string, command: unknown, expectedVersion: number) {
