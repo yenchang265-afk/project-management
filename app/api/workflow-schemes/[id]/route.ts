@@ -4,7 +4,7 @@ import { withAuth } from "@/server/auth";
 import { parseBody } from "@/server/http";
 import { requirePerm } from "@/server/permissions";
 import { deleteScheme, updateScheme } from "@/server/repo/workflows";
-import { TransitionWireSchema } from "../route";
+import { TransitionWireSchema } from "@/server/workflow-schema";
 
 type Ctx = { params: Promise<{ id: string }> };
 
