@@ -7,7 +7,7 @@
    Loop prevention: events appended by automation carry actor "automation:…"
    and are ignored here — rule chains terminate after one hop. */
 import { deriveItem, type Item, type PdlcEvent } from "@/lib/engine";
-import { parseCql, runCql, wiToCqlRow } from "@/lib/cql";
+import { parseCql, runCql, wiToCqlRow, type CqlQuery } from "@/lib/cql";
 import { enabledRulesFor, recordRun, type AutomationAction, type AutomationRule } from "./repo/automations";
 import { applyCommandAsSystem, getAllItems, getItem } from "./repo/items";
 import { type Command, WiPatchSchema } from "./commands";
@@ -71,41 +71,56 @@ async function runRule(rule: AutomationRule, itemId: string, event: PdlcEvent): 
    whose derived row matches its CQL condition (no condition = all WIs). An
    external cron hits POST /api/automations/tick to drive this. */
 
-/** Pure: the (itemId, wiId) pairs a schedule rule's condition selects. A null
- *  CQL matches every work item; an unparseable CQL matches nothing. */
-export function scheduledMatches(items: Item[], cql: string | null): { itemId: string; wiId: string }[] {
-  const parsed = cql ? parseCql(cql) : null;
-  if (cql && (!parsed || !parsed.ok)) return [];
+/** Pure: the (itemId, wiId) pairs a parsed schedule rule's condition selects.
+ *  A null query matches every work item. */
+export function scheduledMatches(
+  items: Item[],
+  query: CqlQuery | null,
+): { itemId: string; wiId: string }[] {
   const out: { itemId: string; wiId: string }[] = [];
   for (const item of items)
     for (const wi of deriveItem(item).workItems) {
-      if (parsed && parsed.ok && runCql(parsed.query, [wiToCqlRow(item.id, wi)]).length === 0) continue;
+      if (query && runCql(query, [wiToCqlRow(item.id, wi)]).length === 0) continue;
       out.push({ itemId: item.id, wiId: wi.id });
     }
   return out;
 }
 
-/** Run every enabled SCHEDULE rule once. Returns counts for the tick response. */
+/** Hard cap: prevent one no-condition rule from hammering the DB on large workspaces. */
+const MAX_ACTIONS_PER_RULE_TICK = 500;
+
+/** Run every enabled SCHEDULE rule once. Returns counts for the tick response.
+ *  Automations execute as "PM" because only PMs can author rules — their effective
+ *  authority mirrors the creating user's role. */
 export async function runScheduledAutomations(): Promise<{ rules: number; actions: number }> {
   const rules = await enabledRulesFor(SCHEDULE_TRIGGER);
   if (!rules.length) return { rules: 0, actions: 0 };
   const items = (await getAllItems()).map((r) => r.item);
   let actionCount = 0;
   for (const rule of rules) {
-    const eventId = "sched-" + rule.id + "-" + Date.now();
+    // unique ID per scheduled run — no real event exists for schedule triggers
+    const eventId = `sched-${rule.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    let query: CqlQuery | null = null;
     if (rule.cql) {
       const parsed = parseCql(rule.cql);
       if (!parsed.ok) { await recordRun(rule.id, eventId, false, `condition doesn't parse: ${parsed.error}`); continue; }
+      query = parsed.query;
     }
-    const matches = scheduledMatches(items, rule.cql);
+    const matches = scheduledMatches(items, query);
     const actor = AUTOMATION_ACTOR_PREFIX + rule.name;
     const problems: string[] = [];
-    for (const { itemId, wiId } of matches)
+    let ruleActions = 0;
+    outer: for (const { itemId, wiId } of matches)
       for (const action of rule.actions) {
+        if (ruleActions >= MAX_ACTIONS_PER_RULE_TICK) {
+          problems.push(`capped at ${MAX_ACTIONS_PER_RULE_TICK} actions/tick`);
+          break outer;
+        }
         const cmd = toCommand(action, wiId);
         if (!cmd) continue;
         const out = await applyCommandAsSystem(itemId, cmd, actor, "PM");
         actionCount++;
+        ruleActions++;
         if (out.status !== "ok")
           problems.push(`${itemId}/${wiId} ${action.kind}: ${out.status === "rejected" ? out.result.error : out.status}`);
       }
