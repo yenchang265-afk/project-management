@@ -31,6 +31,28 @@ export async function resetAndLogin(page: Page): Promise<void> {
   ]);
 }
 
+/* Two-tier chrome navigation (Jira-style): the icon rail switches workspace
+   (mode), the project sidebar switches view. The app boots on Dashboard, so
+   most tests must first open Projects → a view. */
+
+/** From the Dashboard landing, open Projects → Backlog. */
+export async function gotoBacklog(page: Page): Promise<void> {
+  await page.locator('.rail-item[title="Projects"]').click();
+  await expect(page.locator(".page-head h2")).toHaveText("Backlog");
+}
+
+/** Open the seeded item's Details view (default PAY-412) from the Dashboard. */
+export async function openSeedItem(page: Page, id = "PAY-412"): Promise<void> {
+  await gotoBacklog(page);
+  await page.locator(".nav-item", { hasText: id }).first().click();
+  await expect(page.locator(".detail-head h1")).toBeVisible();
+}
+
+/** Open the Organization workspace (team picker in the sidebar). */
+export async function gotoOrg(page: Page): Promise<void> {
+  await page.locator('.rail-item[title="Organization"]').click();
+}
+
 /* Shared locators for the Cadence UI. Selectors lean on existing accessible hooks
    (title attributes, placeholders, visible text) so the components need no test ids. */
 

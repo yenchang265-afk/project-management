@@ -48,18 +48,21 @@ import { TeamSpace } from "./TeamSpace";
 import { Toasts, type Toast } from "./Toasts";
 import { WorkItems } from "./WorkItems";
 import { WorkItemDrawer } from "./WorkItemDrawer";
+import { BacklogView } from "./BacklogView";
 
 /* Prototype tweak defaults, baked in (the Tweaks panel was design-tool chrome). */
 const THEME = { accent: "#5b5fd6", density: "regular", dark: false };
 
-const LANE_FILTERS = [
-  { key: "all", label: "All" },
-  { key: "discovery", label: "Discovery" },
-  { key: "build", label: "Build" },
-  { key: "verify", label: "Verify" },
-  { key: "release", label: "Release" },
-  { key: "closed", label: "Closed" },
-];
+/* Vertical view-nav entries for the project sidebar (Jira-style). */
+const VIEW_NAV = [
+  { key: "backlog", ic: "≣", label: "Backlog" },
+  { key: "board", ic: "▦", label: "Board" },
+  { key: "list", ic: "☰", label: "List" },
+  { key: "timeline", ic: "⇶", label: "Timeline" },
+  { key: "calendar", ic: "◫", label: "Calendar" },
+  { key: "summary", ic: "◎", label: "Summary" },
+  { key: "detail", ic: "▤", label: "Details" },
+] as const;
 
 function rejDetail(r: Rejection): string | null {
   const d = r.detail || {};
@@ -112,7 +115,10 @@ export default function App() {
   const [selOrgId, setSelOrgId] = useState<string | null>(null);
   // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
   const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
-  const [view, setView] = useState<"detail" | "board" | "list" | "timeline" | "calendar" | "summary">("detail");
+  const [view, setView] = useState<"backlog" | "detail" | "board" | "list" | "timeline" | "calendar" | "summary">("backlog");
+  // Jira-style project picker: which project scopes the projects-mode views (null = all).
+  const [selProjId, setSelProjId] = useState<string | null>(null);
+  const [projPickerOpen, setProjPickerOpen] = useState(false);
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -208,6 +214,9 @@ export default function App() {
   // archived items stay in state (detail remains reachable) but are hidden
   // from boards/views/pickers; the list view has its own show-archived toggle
   const activeItems = items.filter((i) => !i.archivedAt);
+  // Jira project picker scopes the projects-mode views (Backlog + Board) to one project.
+  const curProj = selProjId ? structure.projects.find((p) => p.id === selProjId) ?? null : null;
+  const scopedItems = selProjId ? activeItems.filter((i) => i.project === selProjId) : activeItems;
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
   const item = byId[selId] || items[0];
   if (!item) return <div className="app-loading">No items yet.</div>;
@@ -581,20 +590,27 @@ export default function App() {
           <span className="glyph">C</span>
           <span>Cadence</span>
         </div>
-        <div className="modeswitch">
-          <button data-on={mode === "dashboard"} onClick={() => setMode("dashboard")}>⬡ Dashboard</button>
-          <button data-on={mode === "org"} onClick={enterOrgMode}>⤜ Organization</button>
-          <button data-on={mode === "projects"} onClick={() => setMode("projects")}>▤ Projects</button>
+        <div className="topbar-search">
+          <span className="ns-ic">⌕</span>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search items…" aria-label="Search everything" />
+          {query && <button className="ns-x" onClick={() => setQuery("")}>×</button>}
+          {/* server-side "Search everything" dropdown */}
+          {searchHits !== null &&
+            <div className="search-pop" role="listbox" aria-label="Search everything">
+              <div className="search-pop-head">Search everything</div>
+              {searchHits.length === 0 &&
+                <div className="search-pop-empty">No matches across your items.</div>}
+              {searchHits.map((h, i) => (
+                <button key={h.itemId + ":" + (h.wiId ?? "") + ":" + i} className="search-hit" role="option"
+                  onClick={() => openSearchHit(h)}>
+                  <span className="sh-id mono">{h.wiId ?? h.itemId}</span>
+                  <span className="sh-title">{h.wiId ? h.wiTitle : h.title}</span>
+                  {h.wiId && <span className="sh-in">in {h.itemId}</span>}
+                  <span className="sh-field mono">{h.field === "wi_title" ? "title" : h.field.replace("wi_", "")}</span>
+                </button>
+              ))}
+            </div>}
         </div>
-        {mode === "projects" &&
-          <div className="viewswitch">
-            {(["detail", "board", "list", "timeline", "calendar", "summary"] as const).map((v) => (
-              <button key={v} data-on={view === v} onClick={() => setView(v)}>
-                {v === "detail" ? "▤ Details" : v === "board" ? "▦ Board" : v === "list" ? "☰ List"
-                  : v === "timeline" ? "⇶ Timeline" : v === "calendar" ? "◫ Calendar" : "◎ Summary"}
-              </button>
-            ))}
-          </div>}
         <div className="spacer"></div>
         {isPM &&
           <div className="newmenu">
@@ -668,56 +684,63 @@ export default function App() {
       </div>
 
       <div className="body">
-        {/* SIDEBAR — organization/item workspaces have a nav rail (dashboard is full-width) */}
-        {(mode === "projects" || mode === "org") &&
-        <aside className="sidebar">
-          <div className="org-wrap">
-            <div className="org-switch" style={{ cursor: "default" }}>
-              <span className="org-glyph">C</span>
+        {/* TIER 1 — global icon rail: the mode switch (Jira's left rail) */}
+        <nav className="rail" aria-label="Workspaces">
+          <button className="rail-item" title="Dashboard" data-on={mode === "dashboard"} onClick={() => setMode("dashboard")}>⬡</button>
+          <button className="rail-item" title="Organization" data-on={mode === "org"} onClick={enterOrgMode}>⤜</button>
+          <button className="rail-item" title="Projects" data-on={mode === "projects"} onClick={() => setMode("projects")}>▤</button>
+          <div className="rail-spacer"></div>
+          <button className="rail-item" title="Search" onClick={() => document.querySelector<HTMLInputElement>(".topbar-search input")?.focus()}>🔍</button>
+        </nav>
+
+        {/* TIER 2 — project sidebar: vertical view-nav + project picker (Jira project nav) */}
+        {mode === "projects" &&
+          <aside className="proj-sidebar">
+            <div className="proj-head" onClick={() => setProjPickerOpen((o) => !o)} role="button" aria-haspopup="menu" aria-expanded={projPickerOpen}>
+              <span className="org-glyph">{(curProj?.key ?? "C")[0]}</span>
               <span className="org-meta">
-                <span className="org-name">Cadence</span>
-                <span className="org-sub">{structure.projects.length} projects · {structure.teams.length} teams · {items.length} items</span>
+                <span className="org-name">{curProj?.name ?? "All projects"}</span>
+                <span className="org-sub">{curProj?.key ?? `${structure.projects.length} projects`}</span>
               </span>
+              <span className="chev">▾</span>
+              {projPickerOpen &&
+                <div className="proj-pop" role="menu" onClick={(e) => e.stopPropagation()}>
+                  <button role="menuitem" data-on={!selProjId} onClick={() => { setSelProjId(null); setProjPickerOpen(false); }}>All projects</button>
+                  {structure.projects.map((p) => (
+                    <button key={p.id} role="menuitem" data-on={p.id === selProjId}
+                      onClick={() => { setSelProjId(p.id); setProjPickerOpen(false); }}>
+                      <span className="nav-pkey mono">{p.key}</span> {p.name}
+                    </button>
+                  ))}
+                </div>}
             </div>
-          </div>
-          <div className="side-head">
-            <div className="nav-search">
-              <span className="ns-ic">⌕</span>
-              <input value={query} onChange={(e) => setQuery(e.target.value)}
-                placeholder={mode === "org" ? "Search all orgs…" : "Search items…"} />
-              {query && <button className="ns-x" onClick={() => setQuery("")}>×</button>}
-            </div>
-            {/* server-side "Search everything" — complements the local tree filter above */}
-            {searchHits !== null &&
-              <div className="search-pop" role="listbox" aria-label="Search everything">
-                <div className="search-pop-head">Search everything</div>
-                {searchHits.length === 0 &&
-                  <div className="search-pop-empty">No matches across your items.</div>}
-                {searchHits.map((h, i) => (
-                  <button key={h.itemId + ":" + (h.wiId ?? "") + ":" + i} className="search-hit" role="option"
-                    onClick={() => openSearchHit(h)}>
-                    <span className="sh-id mono">{h.wiId ?? h.itemId}</span>
-                    <span className="sh-title">{h.wiId ? h.wiTitle : h.title}</span>
-                    {h.wiId && <span className="sh-in">in {h.itemId}</span>}
-                    <span className="sh-field mono">{h.field === "wi_title" ? "title" : h.field.replace("wi_", "")}</span>
-                  </button>
-                ))}
-              </div>}
-            {mode === "projects" && <div className="lanefilter">
-              {LANE_FILTERS.map((f) => (
-                <button key={f.key} data-on={filter === f.key} onClick={() => setFilter(f.key)}>
-                  {f.label} <span className="mono" style={{ opacity: 0.6 }}>{laneCount(f.key)}</span>
+            <div className="viewnav">
+              <div className="viewnav-section">Views</div>
+              {VIEW_NAV.map((v) => (
+                <button key={v.key} className="viewnav-item" data-on={view === v.key} onClick={() => setView(v.key)}>
+                  <span className="vi-ic">{v.ic}</span>{v.label}
                 </button>
               ))}
-            </div>}
-          </div>
-          <div className="itemtree scroll">
-            <Navigator mode={mode} meId={me.id} orgs={structure.orgs} projects={structure.projects} teams={structure.teams} items={activeItems}
-              selId={selId} selTeamId={mode === "org" ? selTeamId : null} selOrgId={mode === "org" ? selOrgId : null}
-              onSelect={selectItem} onSelectTeam={selectTeam} onSelectOrg={selectOrg}
-              filter={filter} search={query} collapsed={collapsed} onToggle={toggleNode} />
-          </div>
-        </aside>}
+            </div>
+          </aside>}
+
+        {/* TIER 2 — org mode: team/org picker (TeamSpace opens in main) */}
+        {mode === "org" &&
+          <aside className="proj-sidebar">
+            <div className="proj-head" style={{ cursor: "default" }}>
+              <span className="org-glyph">⤜</span>
+              <span className="org-meta">
+                <span className="org-name">Organizations</span>
+                <span className="org-sub">{structure.teams.length} teams</span>
+              </span>
+            </div>
+            <div className="itemtree scroll">
+              <Navigator mode="org" meId={me.id} orgs={structure.orgs} projects={structure.projects} teams={structure.teams} items={activeItems}
+                selId={selId} selTeamId={selTeamId} selOrgId={selOrgId}
+                onSelect={selectItem} onSelectTeam={selectTeam} onSelectOrg={selectOrg}
+                filter={filter} search={query} collapsed={collapsed} onToggle={toggleNode} />
+            </div>
+          </aside>}
 
         {/* DASHBOARD — personalized default landing (admin sees full company rollup) */}
         {mode === "dashboard" &&
@@ -744,10 +767,18 @@ export default function App() {
             onOpenWork={openFromBoard} onSelectTeam={selectTeam}
             onRenameOrg={orgRename} onDeleteOrg={orgDelete} />}
 
+        {/* BACKLOG — project → item tree (moved out of the sidebar) */}
+        {mode === "projects" && view === "backlog" &&
+          <main className="detail board-main">
+            <BacklogView items={scopedItems} projects={structure.projects} teams={structure.teams}
+              selId={selId} onSelect={selectItem} filter={filter} onFilter={setFilter}
+              search={query} collapsed={collapsed} onToggle={toggleNode} laneCount={laneCount} />
+          </main>}
+
         {/* BOARD */}
         {mode === "projects" && view === "board" &&
           <main className="detail board-main">
-            <Board items={activeItems} onMove={moveWorkItemOn} onOpen={openFromBoard} />
+            <Board items={scopedItems} onMove={moveWorkItemOn} onOpen={openFromBoard} />
           </main>}
 
         {/* LIST */}

@@ -840,3 +840,55 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .search-hit .sh-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .search-hit .sh-in{font-size:10px;color:var(--text-3);flex:0 0 auto;}
 .search-hit .sh-field{font-size:9px;color:var(--text-3);border:1px solid var(--border);border-radius:4px;padding:1px 4px;flex:0 0 auto;}
+
+/* ===================== JIRA-STYLE TWO-TIER CHROME ===================== */
+/* Tier 1 — far-left global icon rail (the mode switch). */
+.rail{width:48px;flex:0 0 48px;background:var(--surface-2);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;min-height:0;}
+.rail-item{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+  font-size:17px;color:var(--text-3);transition:.12s var(--ease);}
+.rail-item:hover{background:var(--surface-3);color:var(--text-2);}
+.rail-item[data-on="true"]{background:var(--accent);color:var(--accent-text);box-shadow:var(--shadow-sm);}
+.rail-spacer{flex:1;}
+
+/* Tier 2 — project sidebar: project picker header + vertical view-nav. */
+.proj-sidebar{width:240px;flex:0 0 240px;border-right:1px solid var(--border);background:var(--surface);
+  display:flex;flex-direction:column;min-height:0;}
+.proj-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);
+  cursor:pointer;transition:.12s var(--ease);position:relative;}
+.proj-head:hover{background:var(--surface-2);}
+.proj-head .chev{margin-left:auto;color:var(--text-3);font-size:11px;}
+.proj-pop{position:absolute;left:8px;right:8px;top:56px;z-index:20;background:var(--surface);
+  border:1px solid var(--border-2);border-radius:var(--r-md);box-shadow:var(--shadow);
+  max-height:60vh;overflow:auto;padding:5px;}
+.proj-pop button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:7px 9px;border-radius:7px;font-size:13px;color:var(--text-2);transition:.1s;}
+.proj-pop button:hover{background:var(--surface-2);}
+.proj-pop button[data-on="true"]{background:var(--surface-2);color:var(--text);font-weight:600;}
+.proj-pop .nav-pkey{font-size:10px;color:var(--text-3);}
+
+.viewnav{flex:1;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:1px;}
+.viewnav-section{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--text-3);padding:8px 8px 4px;}
+.viewnav-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:7px 10px;border-radius:7px;color:var(--text-2);font-size:13px;font-weight:500;
+  border:1px solid transparent;transition:.1s var(--ease);}
+.viewnav-item:hover{background:var(--surface-2);}
+.viewnav-item[data-on="true"]{background:var(--surface-2);color:var(--text);font-weight:600;
+  border-color:var(--border-2);box-shadow:var(--shadow-sm);}
+.viewnav-item .vi-ic{width:18px;text-align:center;font-family:var(--mono);opacity:.85;}
+
+/* Page header strip above main content (breadcrumb / title). */
+.page-head{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:11px 22px;
+  border-bottom:1px solid var(--border);background:var(--surface);}
+.page-head h2{margin:0;font-size:15px;font-weight:650;letter-spacing:-.01em;}
+.backlog-scroll{flex:1;min-height:0;overflow-y:auto;padding:10px 12px 40px;}
+
+/* Global search now lives in the top bar. */
+.topbar-search{display:flex;align-items:center;gap:7px;background:var(--surface-2);
+  border:1px solid var(--border);border-radius:var(--r-md);padding:0 9px;width:300px;
+  max-width:38vw;position:relative;}
+.topbar-search:focus-within{border-color:var(--accent);}
+.topbar-search input{flex:1;min-width:0;border:none;background:none;color:var(--text);
+  font:inherit;font-size:13px;padding:8px 0;outline:none;}
+.topbar-search .search-pop{top:42px;left:0;right:auto;width:420px;max-width:60vw;}

@@ -1,11 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { workItemsCard, historyCard, historyCount, wiRow, wiCount, addWorkItem, resetAndLogin } from "./helpers";
+import { workItemsCard, historyCard, historyCount, wiRow, wiCount, addWorkItem, resetAndLogin, openSeedItem } from "./helpers";
 
-// resetAndLogin re-seeds the database per test, so each starts from the same fixture:
-// PAY-412 selected, 5 work items (PAY-418/419/420/421/423), 0 done.
+// resetAndLogin re-seeds the database per test; openSeedItem then navigates the
+// two-tier chrome (Dashboard → Projects/Backlog → PAY-412 Details) so each test
+// starts from the same fixture: PAY-412's 5 work items (PAY-418/419/420/421/423), 0 done.
 test.beforeEach(async ({ page }) => {
   await resetAndLogin(page);
   await page.goto("/");
+  await openSeedItem(page);
   await expect(wiCount(page)).toHaveText("0/5 done");
 });
 
@@ -87,6 +89,7 @@ test.describe("work item CRUD", () => {
     await page.goto("/");
     await expect(page.locator(".who")).toContainText("Sam Okafor");
 
+    await openSeedItem(page);
     await addWorkItem(page, "Added as Dev");
     await expect(wiRow(page, "PAY-424")).toContainText("Added as Dev");
     await expect(wiCount(page)).toHaveText("0/6 done");

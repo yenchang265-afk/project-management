@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resetAndLogin } from "./helpers";
+import { resetAndLogin, openSeedItem, gotoBacklog } from "./helpers";
 
 /* Cross-item links (ITEM_LINK / ITEM_UNLINK): add an outgoing link from the
    Links card, see the inbound direction on the target item, then unlink. */
@@ -7,11 +7,12 @@ import { resetAndLogin } from "./helpers";
 const linksCard = (page: Page) => page.locator(".card", { hasText: "Links" }).first();
 
 async function openItem(page: Page, id: string) {
+  await gotoBacklog(page);
   await page.locator(".nav-item", { hasText: id }).first().click();
-  await expect(page.locator("h1")).not.toHaveText("");
+  await expect(page.locator(".detail-head h1")).toBeVisible();
 }
 
-test.beforeEach(async ({ page }) => { await resetAndLogin(page); await page.goto("/"); });
+test.beforeEach(async ({ page }) => { await resetAndLogin(page); await page.goto("/"); await openSeedItem(page); });
 
 test.describe("item links", () => {
   test("starts empty, links to another item, and unlinks", async ({ page }) => {
