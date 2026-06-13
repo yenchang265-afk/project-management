@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { workItemsCard, wiCount, resetAndLogin } from "./helpers";
+import { workItemsCard, wiCount, resetAndLogin, openSeedItem, gotoBacklog, gotoOrg } from "./helpers";
 
 test.describe("smoke", () => {
   test("loads the seeded PAY-412 feature and its work items", async ({ page }) => {
@@ -7,6 +7,7 @@ test.describe("smoke", () => {
     await page.goto("/");
 
     await expect(page.locator(".brand")).toContainText("Cadence");
+    await openSeedItem(page); // Dashboard → Projects/Backlog → PAY-412 Details
     await expect(page.locator("h1")).toContainText("Apple Pay at checkout");
 
     const card = workItemsCard(page);
@@ -22,15 +23,17 @@ test.describe("smoke", () => {
     await expect(page.locator(".who .kpill")).toHaveText("Product");
   });
 
-  test("sidebar groups items by project; team space shows the scrum template", async ({ page }) => {
+  test("backlog groups items by project; team space shows the scrum template", async ({ page }) => {
     await resetAndLogin(page);
     await page.goto("/");
 
-    // projects section: PAY-412 lives under Commerce Platform
+    // Backlog view: PAY-412 lives under Commerce Platform
+    await gotoBacklog(page);
     await expect(page.locator(".nav-section").first()).toHaveText("Projects");
     await expect(page.locator(".nav-glabel", { hasText: "Commerce Platform" })).toBeVisible();
 
-    // team space: scrum template with sprint board + backlog
+    // team space: scrum template with sprint board + backlog (Organization workspace)
+    await gotoOrg(page);
     await page.locator(".nav-teamrow", { hasText: "Checkout Crew" }).click();
     await expect(page.locator(".teamspace h1")).toHaveText("Checkout Crew");
     await expect(page.locator(".ts-proj", { hasText: "Commerce Platform" })).toBeVisible();
@@ -44,10 +47,14 @@ test.describe("smoke", () => {
     await resetAndLogin(page);
     await page.goto("/");
 
-    // create team via the sidebar modal
-    await page.getByRole("button", { name: "＋ Team" }).click();
+    // create team via the topbar "＋ New" menu → Team modal
+    await page.locator(".newmenu-btn").click();
+    await page.getByRole("menuitem", { name: /team/i }).click();
     await page.locator(".admin-modal input").fill("Tiger Team");
     await page.locator(".admin-modal").getByRole("button", { name: "Create" }).click();
+
+    // the new team shows in the Organization workspace sidebar
+    await gotoOrg(page);
     await expect(page.locator(".nav-teamrow", { hasText: "Tiger Team" })).toBeVisible();
 
     // open its team space; add a member and a project
