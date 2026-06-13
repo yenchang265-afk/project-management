@@ -15,7 +15,7 @@ import {
 import {
   assignItemProject, bulkCommands, createAnnouncement, createOrg, createProject, createTeam, deleteAnnouncement, deleteOrg,
   fetchAnnouncements, fetchItems, fetchMe, fetchNotifications, fetchStructure, fetchUsers,
-  fetchNotificationPrefs, logout, markNotificationsRead, postCommand, postSpawn, putNotificationPrefs,
+  fetchNotificationPrefs, fetchProjectTemplates, logout, markNotificationsRead, postCommand, postSpawn, putNotificationPrefs,
   renameOrg, searchAll, setItemArchived, setTeamOrg, teamMemberOp, teamProjectOp,
   type AnnouncementInfo, type AnnouncementScope, type ApiUser, type NotificationInfo, type Structure, type TeamMemberInfo,
 } from "@/lib/api";
@@ -99,6 +99,8 @@ export default function App() {
   const [draftName, setDraftName] = useState("");
   const [draftKey, setDraftKey] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
+  const [draftTemplate, setDraftTemplate] = useState("cadence-pdlc");
+  const [projectTemplates, setProjectTemplates] = useState<{ id: string; name: string }[]>([{ id: "cadence-pdlc", name: "Cadence PDLC (default)" }]);
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selId, setSelId] = useState("PAY-412");
@@ -431,14 +433,17 @@ export default function App() {
   }
   function openAdminModal(kind: "project" | "team" | "org") {
     setDraftName(""); setDraftKey(""); setDraftDesc("");
+    setDraftTemplate("cadence-pdlc");
     setNewMenuOpen(false);
     setAdminModal(kind);
+    if (kind === "project")
+      void fetchProjectTemplates().then((r) => { if (r.ok) setProjectTemplates(r.data.templates); });
   }
   async function submitAdminModal() {
     const name = draftName.trim();
     if (!name) return;
     const res = adminModal === "project"
-      ? await createProject(draftKey.trim().toUpperCase(), name, draftDesc.trim() || null)
+      ? await createProject(draftKey.trim().toUpperCase(), name, draftDesc.trim() || null, draftTemplate)
       : adminModal === "org"
       ? await createOrg(name)
       : await createTeam(name);
@@ -898,6 +903,13 @@ export default function App() {
             <label className="wi-field block"><span>Description</span>
               <textarea value={draftDesc} rows={2} maxLength={500} placeholder="Optional"
                 onChange={(e) => setDraftDesc(e.target.value)} />
+            </label>}
+          {adminModal === "project" &&
+            <label className="wi-field block"><span>Template</span>
+              {/* template seeds the new project's components + custom-field defs */}
+              <select value={draftTemplate} onChange={(e) => setDraftTemplate(e.target.value)}>
+                {projectTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
             </label>}
           <div className="admin-modal-foot">
             <button className="wi-act" onClick={() => setAdminModal(null)}>Cancel</button>

@@ -9,6 +9,7 @@ import { CfdCard, CreatedResolvedCard } from "./Reports";
 import { AuditLog } from "./AuditLog";
 import { GoalsCard } from "./GoalsCard";
 import { DashboardGadgets } from "./DashboardGadgets";
+import { WorkflowCard } from "./WorkflowCard";
 
 /* ---------------- DASHBOARD (default landing) ----------------
    Personalized to the signed-in user: their teams, their orgs, their assigned
@@ -144,6 +145,7 @@ export function DashboardView({ me, orgs, projects, teams, items, announcements,
               created_resolved: () => <CreatedResolvedCard items={items} />,
               recent_work: () => <RecentWork items={items} onOpen={onOpenWork} limit={8} />,
               audit_log: () => (isAdmin ? <AuditLog onSelectItem={onSelectItem} /> : null),
+              workflow: () => <WorkflowCard />,
             }} />
           </div>
 
