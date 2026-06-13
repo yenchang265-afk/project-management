@@ -929,3 +929,11 @@ button.board-lane-label:hover .lane-chev{color:var(--text-2);}
 .rail[data-expanded="true"] .rail-item{width:100%;height:38px;display:flex;align-items:center;
   justify-content:flex-start;gap:11px;padding:0 10px;font-size:13px;}
 .rail[data-expanded="true"] .rail-label{display:inline;}
+
+/* @mention autocomplete dropdown */
+.mention-wrap{position:relative;}
+.mention-menu{position:absolute;left:0;right:0;bottom:calc(100% + 4px);z-index:30;
+  background:var(--surface);border:1px solid var(--border-2);border-radius:var(--r-md);
+  box-shadow:var(--shadow);max-height:200px;overflow:auto;padding:4px;}
+.mention-menu button{display:block;width:100%;text-align:left;padding:6px 9px;border-radius:6px;font-size:13px;color:var(--text-2);}
+.mention-menu button[data-active="true"],.mention-menu button:hover{background:var(--surface-2);color:var(--text);}
