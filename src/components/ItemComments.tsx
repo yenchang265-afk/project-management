@@ -6,11 +6,12 @@ import { timeAgo } from "@/lib/format";
 import { Avatar } from "./badges";
 import { AiSuggestButton } from "./AiSuggestButton";
 import { CollapsibleCard } from "./CollapsibleCard";
+import { MentionTextarea } from "./MentionTextarea";
 
 /* Item-level discussion thread — chronological fold of ITEM_COMMENT events
    (snap.comments, derived in deriveItem). Posting goes through the command
    path ({kind:"item_comment"}); actor/role come from the session server-side. */
-export function ItemComments({ snap, onComment }: { snap: Snapshot; onComment: (text: string) => void }) {
+export function ItemComments({ snap, onComment, names }: { snap: Snapshot; onComment: (text: string) => void; names: string[] }) {
   const [draft, setDraft] = useState("");
   const comments = snap.comments;
 
@@ -36,10 +37,8 @@ export function ItemComments({ snap, onComment }: { snap: Snapshot; onComment: (
           ))}
         </div>
         <div className="wi-comment-add">
-          <textarea value={draft} maxLength={2000} rows={2}
-            placeholder="Add a comment…  (⌘/Ctrl+Enter to post)"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); } }} />
+          <MentionTextarea value={draft} onChange={setDraft} names={names} maxLength={2000} rows={2}
+            placeholder="Add a comment…  (@ to mention · ⌘/Ctrl+Enter to post)" onSubmit={post} />
           <button className="act primary" onClick={post} disabled={!draft.trim()}>Post</button>
         </div>
         {comments.length > 0 &&

@@ -213,6 +213,8 @@ export default function App() {
 
   const role: Role = me.role;
   const actor = me.name;
+  // de-duplicated user names for @mention autocomplete in comment boxes
+  const mentionNames = [...new Set(users.map((u) => u.name))];
   // archived items stay in state (detail remains reachable) but are hidden
   // from boards/views/pickers; the list view has its own show-archived toggle
   const activeItems = items.filter((i) => !i.archivedAt);
@@ -934,7 +936,7 @@ export default function App() {
                   onCreate={addWorkItem} onUpdate={editWorkItem} onDelete={removeWorkItem} onOpen={setOpenWiId}
                   onMove={moveWorkItem} onReorder={rankWi} onBulkUpdate={(ids, patch) => void bulkEditWis(ids, patch)} />
                 <ItemLinks item={item} snap={snap} all={items ?? []} onLink={linkItem} onUnlink={unlinkItem} />
-                <ItemComments snap={snap} onComment={commentOnItem} />
+                <ItemComments snap={snap} onComment={commentOnItem} names={mentionNames} />
                 <History item={item} />
                 <Analytics item={item} />
               </div>
@@ -1032,7 +1034,8 @@ export default function App() {
       {openWiId && snap.workItems.some((w) => w.id === openWiId) &&
         <WorkItemDrawer key={item.id + ":" + openWiId} item={item} snap={snap} wiId={openWiId} role={role}
           onClose={() => setOpenWiId(null)} onUpdate={editWorkItem} onComment={commentOnWorkItem}
-          onMove={moveWorkItem} onLink={linkWi} onUnlink={unlinkWi} onWorklog={logWorkOn} />}
+          onMove={moveWorkItem} onLink={linkWi} onUnlink={unlinkWi} onWorklog={logWorkOn}
+          names={mentionNames} />}
 
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>
