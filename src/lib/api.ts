@@ -86,8 +86,14 @@ export function postSpawn(spawnFrom: string, expectedVersion: number) {
 /* ---------- Phase 3 admin (PM-only server-side) ---------- */
 export const fetchUsers = () => call<{ users: TeamMemberInfo[] }>("/api/users");
 
-export const createProject = (key: string, name: string, description: string | null) =>
-  call<{ id: string }>("/api/projects", { method: "POST", body: JSON.stringify({ key, name, description }) });
+export const createProject = (key: string, name: string, description: string | null, templateId?: string) =>
+  call<{ id: string }>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({ key, name, description, ...(templateId ? { templateId } : {}) }),
+  });
+
+export const fetchProjectTemplates = () =>
+  call<{ templates: { id: string; name: string }[] }>("/api/projects");
 
 export const createTeam = (name: string) =>
   call<{ id: string }>("/api/teams", { method: "POST", body: JSON.stringify({ name }) });
