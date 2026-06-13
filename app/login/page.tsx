@@ -1,7 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+
+const SSO_REASONS: Record<string, string> = {
+  state: "Sign-in session expired — please try again.",
+  noemail: "Your identity provider didn't share a verified email.",
+  nouser: "No Cadence account matches that email. Ask an admin to add you.",
+  disabled: "SSO is not configured on this server.",
+  error: "SSO sign-in failed — please try again.",
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -9,6 +17,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ssoEnabled, setSsoEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/sso/status").then((r) => r.json()).then((b) => {
+      if (b?.success) setSsoEnabled(!!b.data.enabled);
+    }).catch(() => { /* SSO simply stays hidden */ });
+    const reason = new URLSearchParams(window.location.search).get("sso");
+    if (reason && SSO_REASONS[reason]) setError(SSO_REASONS[reason]);
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,6 +68,14 @@ export default function LoginPage() {
         <button className="act primary login-btn" type="submit" disabled={busy || !email || !password}>
           {busy ? "Signing in…" : "Sign in"}
         </button>
+        {ssoEnabled &&
+          <>
+            <div className="login-or mono" style={{ textAlign: "center", fontSize: 11, color: "var(--text-3)", padding: "8px 0" }}>or</div>
+            <button type="button" className="act login-btn" style={{ width: "100%" }}
+              onClick={() => { window.location.href = "/api/auth/sso/login"; }}>
+              Sign in with SSO
+            </button>
+          </>}
       </form>
     </div>
   );

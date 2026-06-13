@@ -4,21 +4,7 @@ import { withAuth } from "@/server/auth";
 import { parseBody } from "@/server/http";
 import { requirePerm } from "@/server/permissions";
 import { createScheme, listSchemes } from "@/server/repo/workflows";
-import { STATES, type StateKey } from "@/lib/engine";
-
-const stateKeys = Object.keys(STATES) as [StateKey, ...StateKey[]];
-
-/** Wire shape of one transition; structural invariants are re-checked in the
- *  repo via validateWorkflow (spine reachability, gate placement, …). */
-export const TransitionWireSchema = z.object({
-  from: z.enum(stateKeys),
-  to: z.enum(stateKeys),
-  roles: z.array(z.enum(["PM", "Dev"])).min(1).max(2),
-  kind: z.enum(["forward", "rework", "terminal", "recovery", "hotfix"]),
-  label: z.string().min(1).max(80),
-  gate: z.enum(["ready_for_dev", "release"]).optional(),
-  needsReason: z.enum(["reject", "free"]).optional(),
-}).strict();
+import { TransitionWireSchema } from "@/server/workflow-schema";
 
 const CreateSchemeSchema = z.object({
   name: z.string().min(2).max(128),
