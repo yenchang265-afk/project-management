@@ -120,6 +120,7 @@ export default function App() {
   const [selProjId, setSelProjId] = useState<string | null>(null);
   const [projPickerOpen, setProjPickerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [railExpanded, setRailExpanded] = useState(false);
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -685,13 +686,22 @@ export default function App() {
       </div>
 
       <div className="body">
-        {/* TIER 1 — global icon rail: the mode switch (Jira's left rail) */}
-        <nav className="rail" aria-label="Workspaces">
-          <button className="rail-item" title="Dashboard" data-on={mode === "dashboard"} onClick={() => setMode("dashboard")}>⬡</button>
-          <button className="rail-item" title="Organization" data-on={mode === "org"} onClick={enterOrgMode}>⤜</button>
-          <button className="rail-item" title="Projects" data-on={mode === "projects"} onClick={() => setMode("projects")}>▤</button>
+        {/* TIER 1 — global icon rail: the mode switch (Jira's left rail). Expandable to a labeled drawer. */}
+        <nav className="rail" data-expanded={railExpanded} aria-label="Workspaces">
+          <button className="rail-item rail-toggle" title={railExpanded ? "Collapse nav" : "Expand nav"}
+            aria-label={railExpanded ? "Collapse navigation" : "Expand navigation"} aria-expanded={railExpanded}
+            onClick={() => setRailExpanded((o) => !o)}>
+            <span className="ri-ic">{railExpanded ? "«" : "☰"}</span><span className="rail-label">Menu</span>
+          </button>
+          <button className="rail-item" title="Dashboard" data-on={mode === "dashboard"} onClick={() => setMode("dashboard")}>
+            <span className="ri-ic">⬡</span><span className="rail-label">Dashboard</span></button>
+          <button className="rail-item" title="Organization" data-on={mode === "org"} onClick={enterOrgMode}>
+            <span className="ri-ic">⤜</span><span className="rail-label">Organization</span></button>
+          <button className="rail-item" title="Projects" data-on={mode === "projects"} onClick={() => setMode("projects")}>
+            <span className="ri-ic">▤</span><span className="rail-label">Projects</span></button>
           <div className="rail-spacer"></div>
-          <button className="rail-item" title="Search" onClick={() => document.querySelector<HTMLInputElement>(".topbar-search input")?.focus()}>🔍</button>
+          <button className="rail-item" title="Search" onClick={() => document.querySelector<HTMLInputElement>(".topbar-search input")?.focus()}>
+            <span className="ri-ic">🔍</span><span className="rail-label">Search</span></button>
         </nav>
 
         {/* TIER 2 — collapsed strip (Jira-style « / » sidebar toggle) */}

@@ -920,3 +920,12 @@ button.board-lane-label:hover .lane-chev{color:var(--text-2);}
 .lane-chev[data-open="true"]{transform:rotate(90deg);}
 .board-lane-sub{font-size:10px;color:var(--text-3);margin-top:2px;}
 .board-row[data-collapsed="true"]{opacity:.92;}
+
+/* Expandable icon rail (icon-only ⇄ labeled drawer) */
+.rail-item .ri-ic{font-size:17px;line-height:1;width:20px;text-align:center;flex:0 0 auto;}
+.rail-label{display:none;font-size:13px;font-weight:500;white-space:nowrap;}
+.rail-toggle{color:var(--text-2);}
+.rail[data-expanded="true"]{width:188px;flex:0 0 188px;align-items:stretch;padding:8px;}
+.rail[data-expanded="true"] .rail-item{width:100%;height:38px;display:flex;align-items:center;
+  justify-content:flex-start;gap:11px;padding:0 10px;font-size:13px;}
+.rail[data-expanded="true"] .rail-label{display:inline;}
