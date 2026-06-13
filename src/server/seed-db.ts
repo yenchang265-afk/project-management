@@ -116,6 +116,7 @@ export async function resetStructure(conn: Connection): Promise<void> {
   await conn.query("DELETE FROM teams");           // teams reference organizations
   await conn.query("DELETE FROM organizations");
   await conn.query("DELETE FROM projects");
+  await conn.query("DELETE FROM workflow_schemes"); // runtime-created (G-13); projects already cleared
   await conn.query("DELETE FROM announcements");
   await seedStructure(conn);
 }

@@ -1,6 +1,6 @@
 /* Client-side API helpers — thin typed wrapper over fetch + the response envelope.
    A 401 anywhere redirects to /login (session expired or not signed in). */
-import type { Item, PdlcEvent, Role } from "./engine";
+import type { Item, PdlcEvent, Role, TransitionDef } from "./engine";
 import type { SearchHit } from "./search";
 import type { SprintState } from "./sprints";
 
@@ -36,6 +36,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> 
 
 export interface ProjectInfo {
   id: string; key: string; name: string; description: string | null; teamIds: string[];
+  workflowSchemeId: string | null;
 }
 export interface TeamMemberInfo { id: string; name: string; role: Role; }
 export interface TeamInfo { id: string; name: string; orgId: string | null; members: TeamMemberInfo[]; projectIds: string[]; }
@@ -55,6 +56,19 @@ export const searchAll = (q: string) =>
   call<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`);
 export const fetchItems = () => call<{ items: Item[]; versions: Record<string, number> }>("/api/items");
 export const fetchStructure = () => call<Structure>("/api/structure");
+
+/* ---------- workflow schemes (G-13) ---------- */
+export interface WorkflowSchemeInfo { id: string; name: string; transitions: TransitionDef[]; }
+export const fetchWorkflowSchemes = () =>
+  call<{ schemes: WorkflowSchemeInfo[] }>("/api/workflow-schemes");
+export const createWorkflowScheme = (name: string, transitions: TransitionDef[]) =>
+  call<{ id: string }>("/api/workflow-schemes", { method: "POST", body: JSON.stringify({ name, transitions }) });
+export const updateWorkflowScheme = (id: string, name: string, transitions: TransitionDef[]) =>
+  call<{ id: string }>(`/api/workflow-schemes/${id}`, { method: "PATCH", body: JSON.stringify({ name, transitions }) });
+export const deleteWorkflowScheme = (id: string) =>
+  call<Record<string, never>>(`/api/workflow-schemes/${id}`, { method: "DELETE" });
+export const assignWorkflowScheme = (projectId: string, schemeId: string | null) =>
+  call<Record<string, never>>(`/api/projects/${projectId}/workflow-scheme`, { method: "PUT", body: JSON.stringify({ schemeId }) });
 export const logout = () => call<Record<string, never>>("/api/auth/logout", { method: "POST" });
 
 export function postCommand(itemId: string, command: unknown, expectedVersion: number) {

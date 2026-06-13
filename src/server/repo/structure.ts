@@ -25,6 +25,7 @@ async function orgMissing(orgId: string | null): Promise<{ ok: false; error: str
 
 export interface ProjectInfo {
   id: string; key: string; name: string; description: string | null; teamIds: string[];
+  workflowSchemeId: string | null;  // null = engine default workflow (G-13)
 }
 export interface TeamMemberInfo { id: string; name: string; role: Role; }
 export interface TeamInfo {
@@ -37,7 +38,7 @@ export async function getStructure(): Promise<Structure> {
   const [orgRows] = await pool().query<RowDataPacket[]>(
     "SELECT id, name FROM organizations ORDER BY name");
   const [projRows] = await pool().query<RowDataPacket[]>(
-    "SELECT id, `key`, name, description FROM projects ORDER BY name");
+    "SELECT id, `key`, name, description, workflow_scheme_id FROM projects ORDER BY name");
   const [teamRows] = await pool().query<RowDataPacket[]>(
     "SELECT id, name, org_id FROM teams ORDER BY name");
   const [ptRows] = await pool().query<RowDataPacket[]>(
@@ -73,6 +74,7 @@ export async function getStructure(): Promise<Structure> {
     projects: projRows.map((p) => ({
       id: p.id, key: p.key, name: p.name, description: p.description,
       teamIds: teamsByProject.get(p.id) || [],
+      workflowSchemeId: p.workflow_scheme_id ?? null,
     })),
     teams: teamRows.map((t) => ({
       id: t.id, name: t.name, orgId: t.org_id ?? null,

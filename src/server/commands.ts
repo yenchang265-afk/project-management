@@ -8,7 +8,7 @@ import {
   linkWorkItems, logWork, reorderWorkItem, transitionWorkItem, unlinkWorkItems, updateWorkItem,
   ITEM_LINK_KINDS, ITEM_LINK_LABELS, WI_LINK_TYPES, WI_PHASES_ALL, WI_STATES_ALL, WI_TYPES_ALL,
   type ConditionDef, type GateKey, type Item, type PdlcEvent, type Rejection, type Role,
-  type StateKey, type SubtrackState, type TrackKey, type WorkItem,
+  type StateKey, type SubtrackState, type TrackKey, type TransitionDef, type WorkItem,
 } from "@/lib/engine";
 
 /* ---------- zod schemas ---------- */
@@ -124,12 +124,14 @@ function toPatch(p: z.infer<typeof WiPatchSchema>): Partial<WorkItem> {
   return out;
 }
 
-export function runCommand(item: Item, cmd: Command, actor: string, role: Role): CommandResult {
+export function runCommand(
+  item: Item, cmd: Command, actor: string, role: Role, transitions?: TransitionDef[]
+): CommandResult {
   const snap = deriveItem(item);
 
   switch (cmd.kind) {
     case "transition": {
-      const r = applyTransition(item, cmd.to, actor, role, cmd.reason);
+      const r = applyTransition(item, cmd.to, actor, role, cmd.reason, transitions);
       return r.ok ? { ok: true, event: r.event } : fail(r.rejection.message, r.rejection);
     }
     case "condition": {

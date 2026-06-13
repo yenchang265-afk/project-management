@@ -37,6 +37,7 @@ import { CalendarView } from "./CalendarView";
 import { ProjectSummaryView } from "./ProjectSummaryView";
 import { CapacityCard } from "./CapacityCard";
 import { Navigator } from "./Navigator";
+import { WorkflowEditor } from "./WorkflowEditor";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
 import { Spine } from "./Spine";
@@ -84,6 +85,7 @@ export default function App() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [structure, setStructure] = useState<Structure | null>(null);
   const [users, setUsers] = useState<TeamMemberInfo[]>([]);
+  const [workflowAdminOpen, setWorkflowAdminOpen] = useState(false);
   const [adminModal, setAdminModal] = useState<"project" | "team" | "org" | null>(null);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<AnnouncementInfo[]>([]);
@@ -613,6 +615,9 @@ export default function App() {
                 <button role="menuitem" onClick={() => openAdminModal("team")}>
                   <span className="nm-ic mono">◴</span> Team
                 </button>
+                <button role="menuitem" onClick={() => { setNewMenuOpen(false); setWorkflowAdminOpen(true); }}>
+                  <span className="nm-ic mono">⛩</span> Workflow schemes
+                </button>
               </div>
             </>}
           </div>}
@@ -882,6 +887,11 @@ export default function App() {
           </div>
         </main>}
       </div>
+
+      {workflowAdminOpen && isPM && structure &&
+        <WorkflowEditor projects={structure.projects}
+          onClose={() => setWorkflowAdminOpen(false)}
+          onAssigned={() => void refreshStructure()} />}
 
       {adminModal && <>
         <div className="wi-drawer-scrim" onClick={() => setAdminModal(null)}></div>
