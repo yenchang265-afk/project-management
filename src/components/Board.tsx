@@ -7,9 +7,11 @@ import {
 } from "@/lib/engine";
 import { parseCql, runCql, wiToCqlRow, type CqlQuery } from "@/lib/cql";
 import { fetchFilters, type SavedFilterInfo } from "@/lib/api";
+import { wipLevel, type WipLimits } from "@/lib/wip";
 import { Avatar, TypeBox, WI_STATES } from "./badges";
 
 const COLUMNS: WiState[] = ["todo", "in_progress", "in_review", "blocked", "done"];
+const WIP_STORE_KEY = "cadence.board.wipLimits";
 
 interface BoardProps {
   items: Item[];
@@ -35,6 +37,25 @@ export function Board({ items, onMove, onOpen }: BoardProps) {
   // quick filters: saved CQL filters rendered as toggle pills (Jira's board quick filters)
   const [savedFilters, setSavedFilters] = useState<SavedFilterInfo[]>([]);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => new Set());
+  // WIP limits: per-column caps, client-persisted (UI config, never block a move)
+  const [wipLimits, setWipLimits] = useState<WipLimits>({});
+  const [editWip, setEditWip] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = typeof window !== "undefined" && window.localStorage.getItem(WIP_STORE_KEY);
+      if (raw) setWipLimits(JSON.parse(raw) as WipLimits);
+    } catch { /* ignore corrupt/unavailable storage */ }
+  }, []);
+
+  function setColumnLimit(col: WiState, value: number) {
+    setWipLimits((prev) => {
+      const next = { ...prev };
+      if (value > 0) next[col] = value; else delete next[col];
+      try { window.localStorage.setItem(WIP_STORE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   useEffect(() => {
     let stale = false;
@@ -138,13 +159,31 @@ export function Board({ items, onMove, onOpen }: BoardProps) {
         </div>}
 
       <div className="board-grid-head">
-        <div className="board-lane-label"></div>
-        {COLUMNS.map((c) => (
-          <div key={c} className="board-col-head" style={{ color: WI_STATES[c].color }}>
-            {WI_STATES[c].label}
-            <span className="mono board-col-n">{rows.reduce((n, r) => n + r.wis.filter((w) => w.state === c).length, 0)}</span>
-          </div>
-        ))}
+        <div className="board-lane-label">
+          <button className="act" style={{ fontSize: 10 }} data-on={editWip}
+            title="Set per-column WIP limits" onClick={() => setEditWip((e) => !e)}>WIP</button>
+        </div>
+        {COLUMNS.map((c) => {
+          const count = rows.reduce((n, r) => n + r.wis.filter((w) => w.state === c).length, 0);
+          const limit = wipLimits[c];
+          const level = wipLevel(count, limit);
+          return (
+            <div key={c} className="board-col-head" style={{ color: WI_STATES[c].color }} data-wip={level}>
+              {WI_STATES[c].label}
+              <span className="mono board-col-n"
+                style={level === "over" ? { color: "var(--danger, #d44)", fontWeight: 700 }
+                  : level === "at" ? { color: "var(--warn)" } : undefined}
+                title={limit ? `${count} of ${limit} (WIP limit)` : undefined}>
+                {count}{limit ? ` / ${limit}` : ""}
+              </span>
+              {editWip &&
+                <input type="number" min={0} className="wi-sel" style={{ width: 52, marginLeft: 6, padding: "1px 3px" }}
+                  value={limit ?? ""} placeholder="∞"
+                  onChange={(e) => setColumnLimit(c, Math.max(0, parseInt(e.target.value, 10) || 0))}
+                  title="WIP limit (0 = none)" />}
+            </div>
+          );
+        })}
       </div>
 
       <div className="board-rows scroll">
