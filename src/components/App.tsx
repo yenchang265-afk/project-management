@@ -38,6 +38,7 @@ import { ProjectSummaryView } from "./ProjectSummaryView";
 import { CapacityCard } from "./CapacityCard";
 import { Navigator } from "./Navigator";
 import { WorkflowEditor } from "./WorkflowEditor";
+import { AutomationBuilder } from "./AutomationBuilder";
 import { PlanVsActual } from "./PlanVsActual";
 import { RequirementDocs } from "./docs";
 import { Spine } from "./Spine";
@@ -86,6 +87,7 @@ export default function App() {
   const [structure, setStructure] = useState<Structure | null>(null);
   const [users, setUsers] = useState<TeamMemberInfo[]>([]);
   const [workflowAdminOpen, setWorkflowAdminOpen] = useState(false);
+  const [automationOpen, setAutomationOpen] = useState(false);
   const [adminModal, setAdminModal] = useState<"project" | "team" | "org" | null>(null);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [announcements, setAnnouncements] = useState<AnnouncementInfo[]>([]);
@@ -618,6 +620,9 @@ export default function App() {
                 <button role="menuitem" onClick={() => { setNewMenuOpen(false); setWorkflowAdminOpen(true); }}>
                   <span className="nm-ic mono">⛩</span> Workflow schemes
                 </button>
+                <button role="menuitem" onClick={() => { setNewMenuOpen(false); setAutomationOpen(true); }}>
+                  <span className="nm-ic mono">⚙</span> Automation rules
+                </button>
               </div>
             </>}
           </div>}
@@ -892,6 +897,8 @@ export default function App() {
         <WorkflowEditor projects={structure.projects}
           onClose={() => setWorkflowAdminOpen(false)}
           onAssigned={() => void refreshStructure()} />}
+
+      {automationOpen && isPM && <AutomationBuilder onClose={() => setAutomationOpen(false)} />}
 
       {adminModal && <>
         <div className="wi-drawer-scrim" onClick={() => setAdminModal(null)}></div>
