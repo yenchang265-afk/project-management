@@ -16,6 +16,7 @@ const GADGET_LABELS: Record<string, string> = {
   created_resolved: "Created vs resolved",
   recent_work: "Recent work",
   audit_log: "Audit log (admin)",
+  workflow: "Workflow viewer",
 };
 
 const DEFAULT_ORDER = ["lane_spread", "project_health", "cfd", "goals", "created_resolved", "recent_work", "audit_log"];
