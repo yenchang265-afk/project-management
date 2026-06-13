@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Snapshot } from "@/lib/engine";
 import { timeAgo } from "@/lib/format";
 import { Avatar } from "./badges";
+import { AiSuggestButton } from "./AiSuggestButton";
 
 /* Item-level discussion thread — chronological fold of ITEM_COMMENT events
    (snap.comments, derived in deriveItem). Posting goes through the command
@@ -45,6 +46,9 @@ export function ItemComments({ snap, onComment }: { snap: Snapshot; onComment: (
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); } }} />
           <button className="act primary" onClick={post} disabled={!draft.trim()}>Post</button>
         </div>
+        {comments.length > 0 &&
+          <AiSuggestButton label="Summarize discussion"
+            payload={{ kind: "comment_summary", comments }} />}
       </div>
     </div>
   );
