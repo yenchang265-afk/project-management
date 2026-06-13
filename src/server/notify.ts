@@ -28,15 +28,19 @@ export function extractMentions(text: string, names: string[]): string[] {
 
 const snippet = (text: string) => (text.length > 120 ? text.slice(0, 117) + "…" : text);
 
+const COMMENT_TYPES = new Set(["ITEM_COMMENT", "WI_COMMENT"]);
+
 /** Pure: plan the notification rows for one appended event.
- *  TRANSITION → watchers; ITEM_COMMENT → watchers + @mentions (mention wins
- *  when both apply). The acting user is always excluded. */
+ *  TRANSITION → watchers; ITEM_COMMENT → watchers + @mentions; WI_COMMENT →
+ *  the work item's assignee + item watchers + @mentions. Mention wins when
+ *  several apply; the acting user is always excluded. */
 export function planNotifications(
   item: Item, event: PdlcEvent, users: { id: string; name: string }[],
 ): NotificationDraft[] {
-  if (event.type !== "TRANSITION" && event.type !== "ITEM_COMMENT") return [];
+  if (event.type !== "TRANSITION" && !COMMENT_TYPES.has(event.type)) return [];
 
-  const watching = new Set([...deriveItem(item).watchers].map((n) => n.toLowerCase()));
+  const snap = deriveItem(item);
+  const watching = new Set([...snap.watchers].map((n) => n.toLowerCase()));
   const actor = event.actor.toLowerCase();
   const rows: NotificationDraft[] = [];
 
@@ -50,20 +54,30 @@ export function planNotifications(
     return rows;
   }
 
-  // ITEM_COMMENT — watchers get "comment", @mentions get "mention" (one row each)
+  // comment events — watchers get "comment", @mentions get "mention" (one row
+  // each). A WI_COMMENT also notifies the target work item's assignee and names
+  // the work item rather than the parent item.
   const text = event.text ?? "";
   const mentioned = new Set(extractMentions(text, users.map((u) => u.name)).map((n) => n.toLowerCase()));
+  const assignees = new Set<string>();
+  let where = item.id;
+  if (event.type === "WI_COMMENT") {
+    const wi = snap.workItems.find((w) => w.id === event.wiId);
+    if (wi?.assignee) assignees.add(wi.assignee.toLowerCase());
+    if (event.wiId) where = event.wiId;
+  }
+
   for (const u of users) {
     const name = u.name.toLowerCase();
     if (name === actor) continue;
     const isMention = mentioned.has(name);
-    if (!isMention && !watching.has(name)) continue;
+    if (!isMention && !watching.has(name) && !assignees.has(name)) continue;
     rows.push({
       userId: u.id, itemId: item.id,
       kind: isMention ? "mention" : "comment",
       message: isMention
-        ? `${event.actor} mentioned you on ${item.id}: ${snippet(text)}`
-        : `${event.actor} commented on ${item.id}: ${snippet(text)}`,
+        ? `${event.actor} mentioned you on ${where}: ${snippet(text)}`
+        : `${event.actor} commented on ${where}: ${snippet(text)}`,
     });
   }
   return rows;
@@ -73,7 +87,7 @@ export function planNotifications(
  *  pre-append item — watchers are unaffected by TRANSITION / ITEM_COMMENT. */
 export async function notifyAfterCommand(item: Item, event: PdlcEvent): Promise<void> {
   try {
-    if (event.type !== "TRANSITION" && event.type !== "ITEM_COMMENT") return;
+    if (event.type !== "TRANSITION" && !COMMENT_TYPES.has(event.type)) return;
     const users = await getUsers();
     const rows = planNotifications(item, event, users);
     if (rows.length) {
