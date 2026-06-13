@@ -26,6 +26,7 @@ import { Actions } from "./Actions";
 import { Analytics } from "./Analytics";
 import { Board } from "./Board";
 import { DashboardView } from "./DashboardView";
+import { ReportsView } from "./ReportsView";
 import { OrgView } from "./OrgView";
 import { GateInspector } from "./GateInspector";
 import { History } from "./History";
@@ -114,7 +115,7 @@ export default function App() {
   const [selTeamId, setSelTeamId] = useState<string | null>(null);
   const [selOrgId, setSelOrgId] = useState<string | null>(null);
   // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
-  const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
+  const [mode, setMode] = useState<"dashboard" | "org" | "projects" | "reports">("dashboard");
   const [view, setView] = useState<"backlog" | "detail" | "board" | "list" | "timeline" | "calendar" | "summary">("backlog");
   // Jira-style project picker: which project scopes the projects-mode views (null = all).
   const [selProjId, setSelProjId] = useState<string | null>(null);
@@ -704,6 +705,8 @@ export default function App() {
             <span className="ri-ic">⤜</span><span className="rail-label">Organization</span></button>
           <button className="rail-item" title="Projects" data-on={mode === "projects"} onClick={() => setMode("projects")}>
             <span className="ri-ic">▤</span><span className="rail-label">Projects</span></button>
+          <button className="rail-item" title="Reports" data-on={mode === "reports"} onClick={() => setMode("reports")}>
+            <span className="ri-ic">▦</span><span className="rail-label">Reports</span></button>
           <div className="rail-spacer"></div>
           <button className="rail-item" title="Search" onClick={() => document.querySelector<HTMLInputElement>(".topbar-search input")?.focus()}>
             <span className="ri-ic">🔍</span><span className="rail-label">Search</span></button>
@@ -767,12 +770,18 @@ export default function App() {
             <button className="sidebar-collapse" title="Collapse sidebar" onClick={() => setSidebarCollapsed(true)}>« Collapse</button>
           </aside>}
 
-        {/* DASHBOARD — personalized default landing (admin sees full company rollup) */}
+        {/* DASHBOARD — personal "your work" home */}
         {mode === "dashboard" &&
           <DashboardView me={me} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
             items={activeItems} announcements={announcements} canManage={isPM}
             onDeleteAnn={removeAnnouncement} annName={annName}
-            onSelectItem={selectItem} onOpenWork={openFromBoard} />}
+            onSelectItem={selectItem} onOpenWork={openFromBoard}
+            onSelectTeam={selectTeam}
+            onSelectProject={(id) => { setMode("projects"); setSelProjId(id); setView("backlog"); }} />}
+
+        {/* REPORTS — analytics surface (charts moved off the Dashboard) */}
+        {mode === "reports" &&
+          <ReportsView isAdmin={isPM} projects={structure.projects} items={activeItems} onSelectItem={selectItem} />}
 
         {/* ORGANIZATION — tree selects an org (org detail/management) or a team (full TeamSpace) */}
         {mode === "org" && selTeam &&
