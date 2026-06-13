@@ -892,3 +892,31 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .topbar-search input{flex:1;min-width:0;border:none;background:none;color:var(--text);
   font:inherit;font-size:13px;padding:8px 0;outline:none;}
 .topbar-search .search-pop{top:42px;left:0;right:auto;width:420px;max-width:60vw;}
+
+/* ===================== COLLAPSIBLE CARDS ===================== */
+.card-toggle{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  background:none;border:none;font:inherit;color:inherit;cursor:pointer;}
+.card-toggle:hover .card-chev{color:var(--text-2);}
+.card-chev{flex:0 0 auto;color:var(--text-3);font-size:10px;transition:transform .15s var(--ease);}
+.card-chev[data-open="true"]{transform:rotate(90deg);}
+.card-toggle h3{margin:0;}
+.card-toggle .card-sub{margin-left:auto;font-size:10px;color:var(--text-3);}
+.collapsible-card[data-open="false"] .card-h{border-bottom:none;}
+
+/* Collapsible project sidebar (« / ») */
+.proj-sidebar.collapsed{width:28px;flex:0 0 28px;display:flex;align-items:flex-start;justify-content:center;padding-top:10px;}
+.proj-expand{width:22px;height:26px;border-radius:6px;color:var(--text-3);
+  display:grid;place-items:center;font-size:13px;transition:.12s var(--ease);}
+.proj-expand:hover{background:var(--surface-2);color:var(--text-2);}
+.sidebar-collapse{flex:0 0 auto;display:flex;align-items:center;gap:6px;width:100%;
+  padding:8px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);
+  text-align:left;transition:.12s var(--ease);}
+.sidebar-collapse:hover{background:var(--surface-2);color:var(--text-2);}
+
+/* Collapsible board swimlanes */
+button.board-lane-label{background:none;border:none;font:inherit;color:inherit;cursor:pointer;width:100%;}
+button.board-lane-label:hover .lane-chev{color:var(--text-2);}
+.lane-chev{flex:0 0 auto;color:var(--text-3);font-size:10px;transition:transform .15s var(--ease);align-self:center;}
+.lane-chev[data-open="true"]{transform:rotate(90deg);}
+.board-lane-sub{font-size:10px;color:var(--text-3);margin-top:2px;}
+.board-row[data-collapsed="true"]{opacity:.92;}

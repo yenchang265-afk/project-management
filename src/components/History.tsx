@@ -3,6 +3,7 @@
 import { GATES, SUBTRACK_LABELS, TRANSITIONS, label, type Item, type PdlcEvent } from "@/lib/engine";
 import { timeAgo } from "@/lib/format";
 import { Avatar } from "./badges";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 /* ---------------- HISTORY (event-sourced log, reverse chrono) ---------------- */
 const WI_FIELD_LABELS: Record<string, string> = {
@@ -60,12 +61,7 @@ function transLabel(e: PdlcEvent): string {
 export function History({ item }: { item: Item }) {
   const evs = item.events.slice().sort((a, b) => b.ts - a.ts);
   return (
-    <div className="card">
-      <div className="card-h">
-        <h3>History</h3>
-        <span className="mono" style={{ fontSize: 10, color: "var(--text-3)" }}>{evs.length} events · append-only</span>
-      </div>
-      <div className="card-b">
+    <CollapsibleCard title="History" sub={`${evs.length} events · append-only`}>
         <div className="timeline">
           {evs.map((e) => {
             const d = describeEvent(e);
@@ -86,7 +82,6 @@ export function History({ item }: { item: Item }) {
             );
           })}
         </div>
-      </div>
-    </div>
+    </CollapsibleCard>
   );
 }

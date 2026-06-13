@@ -119,6 +119,7 @@ export default function App() {
   // Jira-style project picker: which project scopes the projects-mode views (null = all).
   const [selProjId, setSelProjId] = useState<string | null>(null);
   const [projPickerOpen, setProjPickerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openWiId, setOpenWiId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -693,8 +694,15 @@ export default function App() {
           <button className="rail-item" title="Search" onClick={() => document.querySelector<HTMLInputElement>(".topbar-search input")?.focus()}>🔍</button>
         </nav>
 
+        {/* TIER 2 — collapsed strip (Jira-style « / » sidebar toggle) */}
+        {(mode === "projects" || mode === "org") && sidebarCollapsed &&
+          <div className="proj-sidebar collapsed">
+            <button className="proj-expand" title="Expand sidebar" aria-label="Expand sidebar"
+              onClick={() => setSidebarCollapsed(false)}>»</button>
+          </div>}
+
         {/* TIER 2 — project sidebar: vertical view-nav + project picker (Jira project nav) */}
-        {mode === "projects" &&
+        {mode === "projects" && !sidebarCollapsed &&
           <aside className="proj-sidebar">
             <div className="proj-head" onClick={() => setProjPickerOpen((o) => !o)} role="button" aria-haspopup="menu" aria-expanded={projPickerOpen}>
               <span className="org-glyph">{(curProj?.key ?? "C")[0]}</span>
@@ -722,10 +730,11 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <button className="sidebar-collapse" title="Collapse sidebar" onClick={() => setSidebarCollapsed(true)}>« Collapse</button>
           </aside>}
 
         {/* TIER 2 — org mode: team/org picker (TeamSpace opens in main) */}
-        {mode === "org" &&
+        {mode === "org" && !sidebarCollapsed &&
           <aside className="proj-sidebar">
             <div className="proj-head" style={{ cursor: "default" }}>
               <span className="org-glyph">⤜</span>
@@ -740,6 +749,7 @@ export default function App() {
                 onSelect={selectItem} onSelectTeam={selectTeam} onSelectOrg={selectOrg}
                 filter={filter} search={query} collapsed={collapsed} onToggle={toggleNode} />
             </div>
+            <button className="sidebar-collapse" title="Collapse sidebar" onClick={() => setSidebarCollapsed(true)}>« Collapse</button>
           </aside>}
 
         {/* DASHBOARD — personalized default landing (admin sees full company rollup) */}
