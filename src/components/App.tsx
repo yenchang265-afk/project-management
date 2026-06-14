@@ -333,6 +333,9 @@ export default function App() {
   function addWorkItem(draft: { type: WiType; title: string; assignee: string; state?: WiState }) {
     void sendCmd(item.id, { kind: "wiCreate", draft }, { ok: true, message: "Added work item", detail: draft.title });
   }
+  function cloneWorkItem(fromWiId: string) {
+    void sendCmd(item.id, { kind: "wiClone", fromWiId }, { ok: true, message: "Cloned work item", detail: fromWiId });
+  }
   // CSV import: each row is a normal wiCreate command on its TARGET item, so
   // flows/guards/version checks all apply; per-item queues serialize them.
   function importWorkItem(itemId: string, draft: unknown): Promise<boolean> {
@@ -1035,7 +1038,7 @@ export default function App() {
         <WorkItemDrawer key={item.id + ":" + openWiId} item={item} snap={snap} wiId={openWiId} role={role}
           onClose={() => setOpenWiId(null)} onUpdate={editWorkItem} onComment={commentOnWorkItem}
           onMove={moveWorkItem} onLink={linkWi} onUnlink={unlinkWi} onWorklog={logWorkOn}
-          names={mentionNames} />}
+          onClone={cloneWorkItem} names={mentionNames} />}
 
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>

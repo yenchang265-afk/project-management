@@ -4,7 +4,7 @@
 import { z } from "zod";
 import {
   GATES, STATES, SUBTRACK_FLOW,
-  applyTransition, commentWorkItem, createWorkItem, deleteWorkItem, deriveItem, ev,
+  applyTransition, cloneWorkItem, commentWorkItem, createWorkItem, deleteWorkItem, deriveItem, ev,
   linkWorkItems, logWork, reorderWorkItem, transitionWorkItem, unlinkWorkItems, updateWorkItem,
   ITEM_LINK_KINDS, ITEM_LINK_LABELS, WI_LINK_TYPES, WI_PHASES_ALL, WI_STATES_ALL, WI_TYPES_ALL,
   type ConditionDef, type GateKey, type Item, type PdlcEvent, type Rejection, type Role,
@@ -64,6 +64,7 @@ export const CommandSchema = z.discriminatedUnion("kind", [
     }).strict(),
   }).strict(),
   z.object({ kind: z.literal("wiUpdate"), wiId: z.string().max(32), patch: WiPatchSchema }).strict(),
+  z.object({ kind: z.literal("wiClone"), fromWiId: z.string().max(32), titleOverride: z.string().max(500).optional() }).strict(),
   z.object({ kind: z.literal("wiDelete"), wiId: z.string().max(32) }).strict(),
   z.object({ kind: z.literal("wiComment"), wiId: z.string().max(32), text: z.string().max(10_000) }).strict(),
   z.object({ kind: z.literal("wiWorklog"), wiId: z.string().max(32), hours: z.number().gt(0).max(10_000), note: z.string().max(2000) }).strict(),
@@ -165,6 +166,10 @@ export function runCommand(
     }
     case "wiUpdate": {
       const r = updateWorkItem(item, snap, cmd.wiId, toPatch(cmd.patch), actor, role);
+      return r.ok ? { ok: true, event: r.event } : fail(r.error);
+    }
+    case "wiClone": {
+      const r = cloneWorkItem(item, snap, cmd.fromWiId, actor, role, { titleOverride: cmd.titleOverride });
       return r.ok ? { ok: true, event: r.event } : fail(r.error);
     }
     case "wiDelete": {
