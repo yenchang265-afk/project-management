@@ -439,6 +439,14 @@ export function deriveItem(item: Item): Snapshot {
           if (p.parentWiId != null) created.parentWiId = p.parentWiId;
           if (p.dueDate != null) created.dueDate = p.dueDate;
           if (p.component != null) created.component = p.component;
+          if (p.originalEstimate != null) created.originalEstimate = p.originalEstimate;
+          if (p.remainingEstimate != null) created.remainingEstimate = p.remainingEstimate;
+          if (p.customFields != null) {
+            // fresh copy, never alias the payload; drop null values (a clear has no meaning on create)
+            const cf: Record<string, string | number> = {};
+            for (const [k, v] of Object.entries(p.customFields)) if (v != null) cf[k] = v;
+            if (Object.keys(cf).length) created.customFields = cf;
+          }
           workItems = [...workItems, created];
         }
         break;
@@ -847,6 +855,43 @@ export function createWorkItem(
     const norm = normalizeTags(draft.tags);
     if (norm.length) wi.tags = norm;
   }
+  return { ok: true, event: ev(item.id, "WI_CREATE", actor, role, { wiId: id, wi }) };
+}
+
+/** Clone a work item: ONE WI_CREATE event copying every cloneable field from the
+ *  source. State resets to "todo", remainingEstimate resets to the source's
+ *  originalEstimate, and per-instance/derived fields (id, comments, worklogs,
+ *  timeSpent, links) are never carried. Mirrors createWorkItem's WiResult shape. */
+export function cloneWorkItem(
+  item: Item, snap: Snapshot, fromWiId: string,
+  actor: string, role: Role,
+  opts?: { titleOverride?: string }
+): WiResult {
+  const source = snap.workItems.find((w) => w.id === fromWiId);
+  if (!source) return { ok: false, error: `Work item ${fromWiId} not found.` };
+  const id = nextWorkItemId(item, snap);
+  const override = (opts?.titleOverride || "").trim();
+  const title = (override || `Clone of ${source.title}`).slice(0, 500);
+  // Always reset: title (above), state, remainingEstimate.
+  const wi: Partial<WorkItem> = { type: source.type, title, state: "todo", assignee: source.assignee };
+  // Copy each cloneable scalar/collection only when the source actually has it.
+  if (source.description !== undefined) wi.description = source.description;
+  if (source.acceptanceCriteria !== undefined) wi.acceptanceCriteria = source.acceptanceCriteria;
+  if (source.priority !== undefined) wi.priority = source.priority;
+  if (source.storyPoints !== undefined) wi.storyPoints = source.storyPoints;
+  if (source.severity !== undefined) wi.severity = source.severity;
+  if (source.tags !== undefined) wi.tags = [...source.tags];
+  if (source.phase !== undefined) wi.phase = source.phase;
+  if (source.sprint !== undefined) wi.sprint = source.sprint;
+  if (source.dueDate !== undefined) wi.dueDate = source.dueDate;
+  if (source.component !== undefined) wi.component = source.component;
+  if (source.parentWiId !== undefined) wi.parentWiId = source.parentWiId;
+  if (source.originalEstimate !== undefined) {
+    wi.originalEstimate = source.originalEstimate;
+    wi.remainingEstimate = source.originalEstimate; // fresh clone: no work logged yet
+  }
+  if (source.customFields !== undefined) wi.customFields = { ...source.customFields };
+  // NOT copied (derived or per-instance): id, comments, worklogs, timeSpent, links.
   return { ok: true, event: ev(item.id, "WI_CREATE", actor, role, { wiId: id, wi }) };
 }
 

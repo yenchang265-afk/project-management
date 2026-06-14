@@ -34,6 +34,7 @@ describe("CommandSchema", () => {
       { kind: "wiLink", wiId: "PAY-418", type: "blocks", target: "PAY-419" },
       { kind: "wiUnlink", wiId: "PAY-418", type: "blocks", target: "PAY-419" },
       { kind: "wiReorder", wiId: "PAY-418", toIndex: 0 },
+      { kind: "wiClone", fromWiId: "PAY-418" },
     ];
     for (const c of cmds) expect(CommandSchema.safeParse(c).success, c.kind).toBe(true);
   });
@@ -108,6 +109,46 @@ describe("runCommand — engine + role guards", () => {
     const item = makeItem();
     expect(runCommand(item, { kind: "flag", flag: "blocked", value: true, reason: "x" }, DEV, "Dev").ok).toBe(true);
     expect(runCommand(item, { kind: "flag", flag: "on_hold", value: true, reason: null }, PM, "PM").ok).toBe(true);
+  });
+});
+
+describe("wiClone command", () => {
+  it("schema accepts {fromWiId} and an optional titleOverride; rejects extras / oversize", () => {
+    expect(CommandSchema.safeParse({ kind: "wiClone", fromWiId: "PAY-418" }).success).toBe(true);
+    expect(CommandSchema.safeParse({ kind: "wiClone", fromWiId: "PAY-418", titleOverride: "New" }).success).toBe(true);
+    expect(CommandSchema.safeParse({ kind: "wiClone" }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "wiClone", fromWiId: "x".repeat(33) }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "wiClone", fromWiId: "PAY-418", titleOverride: "x".repeat(501) }).success).toBe(false);
+    expect(CommandSchema.safeParse({ kind: "wiClone", fromWiId: "PAY-418", extra: 1 }).success).toBe(false);
+  });
+
+  it("dispatch yields a WI_CREATE event for a new id copying source fields", () => {
+    const source: WorkItem = { ...WI, state: "in_progress", priority: 1, storyPoints: 3 };
+    const item = makeItem([source]);
+    const r = runCommand(item, { kind: "wiClone", fromWiId: "PAY-418" }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.type).toBe("WI_CREATE");
+    expect(r.event.wiId).not.toBe("PAY-418");
+    expect(r.event.wi?.title).toBe("Clone of Button");
+    expect(r.event.wi?.state).toBe("todo");
+    expect(r.event.wi?.priority).toBe(1);
+    expect(r.event.wi?.storyPoints).toBe(3);
+    const after = deriveItem({ ...item, events: [...item.events, r.event] });
+    expect(after.workItems.map((w) => w.id)).toContain(r.event.wiId);
+  });
+
+  it("titleOverride is threaded through to the engine", () => {
+    const item = makeItem([WI]);
+    const r = runCommand(item, { kind: "wiClone", fromWiId: "PAY-418", titleOverride: "Renamed" }, PM, "PM");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.event.wi?.title).toBe("Renamed");
+  });
+
+  it("dispatch returns {ok:false} when the source is missing", () => {
+    const r = runCommand(makeItem([WI]), { kind: "wiClone", fromWiId: "PAY-999" }, PM, "PM");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/not found/i);
   });
 });
 

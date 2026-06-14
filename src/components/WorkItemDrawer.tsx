@@ -30,13 +30,14 @@ interface WorkItemDrawerProps {
   onLink: (wiId: string, type: WiLinkType, target: string) => void;
   onUnlink: (wiId: string, type: WiLinkType, target: string) => void;
   onWorklog: (wiId: string, hours: number, note: string) => void;
+  onClone: (fromWiId: string) => void;
   names: string[];
 }
 
 /* Right-side drawer for the full Azure DevOps-style work-item form + discussion.
    Mounted with key={wiId} by the parent, so local field buffers are fresh per item.
    Text fields commit on blur; selects/tags/comments commit on change. */
-export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment, onMove, onLink, onUnlink, onWorklog, names }: WorkItemDrawerProps) {
+export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment, onMove, onLink, onUnlink, onWorklog, onClone, names }: WorkItemDrawerProps) {
   const w = snap.workItems.find((x) => x.id === wiId);
   const asideRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -218,6 +219,7 @@ export function WorkItemDrawer({ item, snap, wiId, onClose, onUpdate, onComment,
           <TypeBox type={w.type} size={20} />
           <span className="wid">{w.id}</span>
           <div style={{ flex: 1 }}></div>
+          <button className="wi-act" title="Clone" onClick={() => onClone(wiId)}>Clone</button>
           <button className="wi-act" title="Close" onClick={onClose}>✕</button>
         </div>
 
