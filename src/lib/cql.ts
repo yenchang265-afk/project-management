@@ -311,23 +311,67 @@ function compare(actual: string | number | string[] | undefined, op: Op, expecte
   }
 }
 
-function evalNode(node: Node, row: CqlRow): boolean {
+/* ---------- relative dates (JQL-style, but bare words so the existing
+   tokenizer handles them): now/today, ±Nd, ±Nw, startofweek/endofweek
+   (Monday-based), startofmonth/endofmonth. Resolved against an injected `now`
+   for the `due` field at eval time, then compared with the usual lexicographic
+   string compare. ---------- */
+
+const DATE_FIELDS = new Set(["due"]);
+
+function toISO(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/** Resolve a relative-date token to a local ISO date, or null when the token
+ *  is not a relative-date expression (e.g. a literal ISO date or junk). */
+export function resolveDateToken(token: string, now: Date): string | null {
+  const t = (token || "").trim().toLowerCase();
+  if (t === "now" || t === "today") return toISO(now);
+  const off = /^([+-]?\d+)(d|w)$/.exec(t);
+  if (off) {
+    const days = parseInt(off[1], 10) * (off[2] === "w" ? 7 : 1);
+    return toISO(new Date(now.getFullYear(), now.getMonth(), now.getDate() + days));
+  }
+  if (t === "startofweek" || t === "endofweek") {
+    const sinceMonday = (now.getDay() + 6) % 7; // getDay: 0=Sun
+    const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - sinceMonday);
+    return t === "startofweek" ? toISO(mon) : toISO(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6));
+  }
+  if (t === "startofmonth") return toISO(new Date(now.getFullYear(), now.getMonth(), 1));
+  if (t === "endofmonth") return toISO(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  return null;
+}
+
+/** For a date field, swap a relative-date token for its resolved ISO value. */
+function resolveValue(field: string, value: Value, now: Date): Value {
+  if (value.kind === "str" && DATE_FIELDS.has(field)) {
+    const iso = resolveDateToken(value.v, now);
+    if (iso) return { kind: "str", v: iso };
+  }
+  return value;
+}
+
+function evalNode(node: Node, row: CqlRow, now: Date): boolean {
   switch (node.kind) {
-    case "and": return node.nodes.every((n) => evalNode(n, row));
-    case "or": return node.nodes.some((n) => evalNode(n, row));
-    case "cmp": return compare(fieldValue(row, node.field), node.op, node.value);
+    case "and": return node.nodes.every((n) => evalNode(n, row, now));
+    case "or": return node.nodes.some((n) => evalNode(n, row, now));
+    case "cmp": return compare(fieldValue(row, node.field), node.op, resolveValue(node.field, node.value, now));
     case "in": {
       const actual = fieldValue(row, node.field);
-      const hit = node.values.some((v) => equals(actual, v));
+      const hit = node.values.some((v) => equals(actual, resolveValue(node.field, v, now)));
       return node.negate ? !hit : hit;
     }
   }
 }
 
 /** Filter rows by the query, then apply ORDER BY (unset values sort last;
- *  input order is otherwise preserved — Array.prototype.sort is stable). */
-export function runCql(query: CqlQuery, rows: CqlRow[]): CqlRow[] {
-  const out = rows.filter((r) => evalNode(query.where, r));
+ *  input order is otherwise preserved — Array.prototype.sort is stable).
+ *  `now` (default current time) anchors relative-date tokens. */
+export function runCql(query: CqlQuery, rows: CqlRow[], now: Date = new Date()): CqlRow[] {
+  const out = rows.filter((r) => evalNode(query.where, r, now));
   const ob = query.orderBy;
   if (!ob) return out;
   const dir = ob.desc ? -1 : 1;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseCql, runCql, type CqlRow } from "./cql";
+import { parseCql, resolveDateToken, runCql, type CqlRow } from "./cql";
 
 /* CQL — Cadence Query Language, a JQL subset over flat work-item rows.
    parseCql never throws: { ok, query } | { ok: false, error }. */
@@ -20,6 +20,63 @@ function matches(cql: string, r: CqlRow): boolean {
   if (!p.ok) throw new Error("parse failed: " + p.error);
   return runCql(p.query, [r]).length === 1;
 }
+
+/* relative-date support: a fixed "now" of Sunday 2026-06-14 */
+const NOW = new Date(2026, 5, 14); // months are 0-based → June
+function matchesAt(cql: string, r: CqlRow, now: Date): boolean {
+  const p = parseCql(cql);
+  if (!p.ok) throw new Error("parse failed: " + p.error);
+  return runCql(p.query, [r], now).length === 1;
+}
+
+describe("resolveDateToken", () => {
+  it("resolves now/today to the current local date", () => {
+    expect(resolveDateToken("today", NOW)).toBe("2026-06-14");
+    expect(resolveDateToken("now", NOW)).toBe("2026-06-14");
+    expect(resolveDateToken("TODAY", NOW)).toBe("2026-06-14"); // case-insensitive
+  });
+  it("resolves day offsets (-Nd / Nd / +Nd)", () => {
+    expect(resolveDateToken("-7d", NOW)).toBe("2026-06-07");
+    expect(resolveDateToken("3d", NOW)).toBe("2026-06-17");
+    expect(resolveDateToken("+3d", NOW)).toBe("2026-06-17");
+  });
+  it("resolves week offsets", () => {
+    expect(resolveDateToken("1w", NOW)).toBe("2026-06-21");
+    expect(resolveDateToken("-2w", NOW)).toBe("2026-05-31");
+  });
+  it("resolves start/end of week (Monday-based)", () => {
+    expect(resolveDateToken("startofweek", NOW)).toBe("2026-06-08"); // Mon
+    expect(resolveDateToken("endofweek", NOW)).toBe("2026-06-14");   // Sun
+  });
+  it("resolves start/end of month", () => {
+    expect(resolveDateToken("startofmonth", NOW)).toBe("2026-06-01");
+    expect(resolveDateToken("endofmonth", NOW)).toBe("2026-06-30");
+  });
+  it("returns null for non-tokens (literal ISO, junk)", () => {
+    expect(resolveDateToken("2026-06-01", NOW)).toBeNull(); // literal date left as-is
+    expect(resolveDateToken("nope", NOW)).toBeNull();
+    expect(resolveDateToken("7x", NOW)).toBeNull();
+  });
+});
+
+describe("relative dates in CQL (due field)", () => {
+  it("due < today filters overdue items", () => {
+    expect(matchesAt("due < today", row({ due: "2026-06-10" }), NOW)).toBe(true);
+    expect(matchesAt("due < today", row({ due: "2026-06-20" }), NOW)).toBe(false);
+  });
+  it("due >= startofweek AND due <= endofweek filters this week", () => {
+    const q = "due >= startofweek AND due <= endofweek";
+    expect(matchesAt(q, row({ due: "2026-06-10" }), NOW)).toBe(true);  // in week
+    expect(matchesAt(q, row({ due: "2026-06-01" }), NOW)).toBe(false); // before
+  });
+  it("due > -7d keeps recently/future-due items", () => {
+    expect(matchesAt("due > -7d", row({ due: "2026-06-12" }), NOW)).toBe(true);
+    expect(matchesAt("due > -7d", row({ due: "2026-06-01" }), NOW)).toBe(false);
+  });
+  it("literal ISO comparisons still work unchanged", () => {
+    expect(matchesAt("due = 2026-06-14", row({ due: "2026-06-14" }), NOW)).toBe(true);
+  });
+});
 
 describe("parseCql", () => {
   it("rejects empty input and unknown fields with a friendly error", () => {
