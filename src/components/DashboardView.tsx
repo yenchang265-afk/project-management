@@ -1,7 +1,7 @@
 "use client";
 
 import { deriveItem, type Item } from "@/lib/engine";
-import type { AnnouncementInfo, ApiUser, OrgInfo, ProjectInfo, TeamInfo } from "@/lib/api";
+import type { AnnouncementInfo, ApiUser, ProjectInfo, TeamInfo } from "@/lib/api";
 import { WI_STATES } from "./badges";
 import { RecentWork } from "./RecentWork";
 import { Announcements } from "./Announcements";
@@ -13,7 +13,6 @@ import { Announcements } from "./Announcements";
 
 interface DashboardViewProps {
   me: ApiUser;
-  orgs: OrgInfo[];
   projects: ProjectInfo[];
   teams: TeamInfo[];
   items: Item[];

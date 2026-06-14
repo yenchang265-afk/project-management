@@ -772,7 +772,7 @@ export default function App() {
 
         {/* DASHBOARD — personal "your work" home */}
         {mode === "dashboard" &&
-          <DashboardView me={me} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
+          <DashboardView me={me} projects={structure.projects} teams={structure.teams}
             items={activeItems} announcements={announcements} canManage={isPM}
             onDeleteAnn={removeAnnouncement} annName={annName}
             onSelectItem={selectItem} onOpenWork={openFromBoard}
