@@ -937,3 +937,9 @@ button.board-lane-label:hover .lane-chev{color:var(--text-2);}
   box-shadow:var(--shadow);max-height:200px;overflow:auto;padding:4px;}
 .mention-menu button{display:block;width:100%;text-align:left;padding:6px 9px;border-radius:6px;font-size:13px;color:var(--text-2);}
 .mention-menu button[data-active="true"],.mention-menu button:hover{background:var(--surface-2);color:var(--text);}
+
+/* Dashboard personal-home: clickable chips + done work rows */
+button.dash-chip{font:inherit;color:inherit;cursor:pointer;transition:.12s var(--ease);}
+button.dash-chip:hover{border-color:var(--border-2);background:var(--surface-3);}
+.dash-work-row[data-done="true"]{opacity:.55;}
+.dash-work-row[data-done="true"] .dash-work-ti{text-decoration:line-through;}
