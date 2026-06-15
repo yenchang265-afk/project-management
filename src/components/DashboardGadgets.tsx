@@ -60,7 +60,7 @@ export function DashboardGadgets({ isAdmin, render }: DashboardGadgetsProps) {
         <button className="act" data-on={editing} onClick={() => setEditing(!editing)}>
           {editing ? "✓ Done" : "⚙ Customize"}
         </button>
-        {editing && JSON.stringify(known) !== JSON.stringify(DEFAULT_ORDER) &&
+        {editing && JSON.stringify(known) !== JSON.stringify(DEFAULT_ORDER.filter((k) => k in render)) &&
           <button className="act" onClick={() => persist(DEFAULT_ORDER)}>Reset</button>}
       </div>
       {editing && addable.length > 0 &&
