@@ -26,6 +26,7 @@ import { Actions } from "./Actions";
 import { Analytics } from "./Analytics";
 import { Board } from "./Board";
 import { DashboardView } from "./DashboardView";
+import { ReportsView } from "./ReportsView";
 import { OrgView } from "./OrgView";
 import { GateInspector } from "./GateInspector";
 import { History } from "./History";
@@ -114,7 +115,7 @@ export default function App() {
   const [selTeamId, setSelTeamId] = useState<string | null>(null);
   const [selOrgId, setSelOrgId] = useState<string | null>(null);
   // top-level workspace, each isolated: Dashboard (default landing) · Organization (orgs+teams) · Projects.
-  const [mode, setMode] = useState<"dashboard" | "org" | "projects">("dashboard");
+  const [mode, setMode] = useState<"dashboard" | "org" | "projects" | "reports">("dashboard");
   const [view, setView] = useState<"backlog" | "detail" | "board" | "list" | "timeline" | "calendar" | "summary">("backlog");
   // Jira-style project picker: which project scopes the projects-mode views (null = all).
   const [selProjId, setSelProjId] = useState<string | null>(null);
@@ -213,6 +214,14 @@ export default function App() {
 
   const role: Role = me.role;
   const actor = me.name;
+  // de-duplicated user + team names for @mention autocomplete in comment boxes
+  // (teams are mention groups: @<Team> notifies every member)
+  const mentionNames = [
+    ...new Set([
+      ...users.map((u) => u.name),
+      ...(structure.teams ?? []).map((t) => t.name),
+    ]),
+  ];
   // archived items stay in state (detail remains reachable) but are hidden
   // from boards/views/pickers; the list view has its own show-archived toggle
   const activeItems = items.filter((i) => !i.archivedAt);
@@ -330,6 +339,9 @@ export default function App() {
   /* ---- work items (server-validated commands) ---- */
   function addWorkItem(draft: { type: WiType; title: string; assignee: string; state?: WiState }) {
     void sendCmd(item.id, { kind: "wiCreate", draft }, { ok: true, message: "Added work item", detail: draft.title });
+  }
+  function cloneWorkItem(fromWiId: string) {
+    void sendCmd(item.id, { kind: "wiClone", fromWiId }, { ok: true, message: "Cloned work item", detail: fromWiId });
   }
   // CSV import: each row is a normal wiCreate command on its TARGET item, so
   // flows/guards/version checks all apply; per-item queues serialize them.
@@ -699,6 +711,8 @@ export default function App() {
             <span className="ri-ic">⤜</span><span className="rail-label">Organization</span></button>
           <button className="rail-item" title="Projects" data-on={mode === "projects"} onClick={() => setMode("projects")}>
             <span className="ri-ic">▤</span><span className="rail-label">Projects</span></button>
+          <button className="rail-item" title="Reports" data-on={mode === "reports"} onClick={() => setMode("reports")}>
+            <span className="ri-ic">▦</span><span className="rail-label">Reports</span></button>
           <div className="rail-spacer"></div>
           <button className="rail-item" title="Search" onClick={() => document.querySelector<HTMLInputElement>(".topbar-search input")?.focus()}>
             <span className="ri-ic">🔍</span><span className="rail-label">Search</span></button>
@@ -762,12 +776,18 @@ export default function App() {
             <button className="sidebar-collapse" title="Collapse sidebar" onClick={() => setSidebarCollapsed(true)}>« Collapse</button>
           </aside>}
 
-        {/* DASHBOARD — personalized default landing (admin sees full company rollup) */}
+        {/* DASHBOARD — personal "your work" home */}
         {mode === "dashboard" &&
-          <DashboardView me={me} orgs={structure.orgs} projects={structure.projects} teams={structure.teams}
+          <DashboardView me={me} projects={structure.projects} teams={structure.teams}
             items={activeItems} announcements={announcements} canManage={isPM}
             onDeleteAnn={removeAnnouncement} annName={annName}
-            onSelectItem={selectItem} onOpenWork={openFromBoard} />}
+            onSelectItem={selectItem} onOpenWork={openFromBoard}
+            onSelectTeam={selectTeam}
+            onSelectProject={(id) => { setMode("projects"); setSelProjId(id); setView("backlog"); }} />}
+
+        {/* REPORTS — analytics surface (charts moved off the Dashboard) */}
+        {mode === "reports" &&
+          <ReportsView isAdmin={isPM} projects={structure.projects} items={activeItems} onSelectItem={selectItem} />}
 
         {/* ORGANIZATION — tree selects an org (org detail/management) or a team (full TeamSpace) */}
         {mode === "org" && selTeam &&
@@ -934,7 +954,7 @@ export default function App() {
                   onCreate={addWorkItem} onUpdate={editWorkItem} onDelete={removeWorkItem} onOpen={setOpenWiId}
                   onMove={moveWorkItem} onReorder={rankWi} onBulkUpdate={(ids, patch) => void bulkEditWis(ids, patch)} />
                 <ItemLinks item={item} snap={snap} all={items ?? []} onLink={linkItem} onUnlink={unlinkItem} />
-                <ItemComments snap={snap} onComment={commentOnItem} />
+                <ItemComments snap={snap} onComment={commentOnItem} names={mentionNames} />
                 <History item={item} />
                 <Analytics item={item} />
               </div>
@@ -1032,7 +1052,8 @@ export default function App() {
       {openWiId && snap.workItems.some((w) => w.id === openWiId) &&
         <WorkItemDrawer key={item.id + ":" + openWiId} item={item} snap={snap} wiId={openWiId} role={role}
           onClose={() => setOpenWiId(null)} onUpdate={editWorkItem} onComment={commentOnWorkItem}
-          onMove={moveWorkItem} onLink={linkWi} onUnlink={unlinkWi} onWorklog={logWorkOn} />}
+          onMove={moveWorkItem} onLink={linkWi} onUnlink={unlinkWi} onWorklog={logWorkOn}
+          onClone={cloneWorkItem} names={mentionNames} />}
 
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>

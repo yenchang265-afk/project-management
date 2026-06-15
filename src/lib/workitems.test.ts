@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   deriveItem, ev,
-  createWorkItem, updateWorkItem, deleteWorkItem, nextWorkItemId,
+  createWorkItem, cloneWorkItem, updateWorkItem, deleteWorkItem, nextWorkItemId,
   commentWorkItem, normalizeTags,
   type Item, type PdlcEvent, type WiState, type WiType, type WorkItem,
 } from "./engine";
@@ -641,5 +641,189 @@ describe("tags on create (intake forms label submissions)", () => {
     if (!r.ok) return;
     const w = deriveItem(withEvent(item, r.event)).workItems.find((x) => x.id === r.event.wiId)!;
     expect(w.tags).toEqual(["intake", "web"]);
+  });
+});
+
+describe("cloneWorkItem", () => {
+  // A richly-populated source WI carrying every cloneable field, plus several
+  // per-instance/derived fields that must NOT survive the clone.
+  function richSource(): WorkItem {
+    return {
+      id: "PAY-418",
+      type: "bug",
+      title: "Card declines on retry",
+      state: "in_progress",                              // must reset to "todo"
+      assignee: "Priya",
+      description: "Retries double-charge.",
+      acceptanceCriteria: "No double charge on retry.",
+      priority: 1,
+      storyPoints: 5,
+      severity: 2,
+      tags: ["payments", "regression"],
+      phase: "build",
+      sprint: "Sprint 7",
+      dueDate: "2026-07-01",
+      component: "Billing",
+      parentWiId: "PAY-420",
+      originalEstimate: 8,
+      remainingEstimate: 3,                              // per-instance — reset to originalEstimate
+      timeSpent: 5,                                      // derived — not copied
+      customFields: { team_area: "checkout", build: 42 },
+      comments: [{ id: "c1", author: "Sam", role: "Dev", ts: 1000, text: "looking" }],
+      worklogs: [{ id: "w1", author: "Sam", role: "Dev", ts: 1000, hours: 5 }],
+      links: [{ type: "blocks", target: "PAY-419" }],
+    } as WorkItem;
+  }
+  function itemWith(source: WorkItem): Item {
+    return makeItem([source, { id: "PAY-420", type: "feature", title: "Parent", state: "todo", assignee: "" }]);
+  }
+
+  it("source not found returns ok:false with a clear message", () => {
+    const item = makeItem();
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-999", PM, "PM");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe("Work item PAY-999 not found.");
+  });
+
+  it("emits a single WI_CREATE event with a fresh id ≠ source id", () => {
+    const item = itemWith(richSource());
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.type).toBe("WI_CREATE");
+    expect(r.event.wiId).toBe("PAY-421");        // max(418, 420) + 1
+    expect(r.event.wiId).not.toBe("PAY-418");
+    expect(r.event.wi?.id).toBeUndefined();      // id is never carried in the payload
+  });
+
+  it("copies all cloneable fields from the source", () => {
+    const item = itemWith(richSource());
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const w = deriveItem(withEvent(item, r.event)).workItems.find((x) => x.id === r.event.wiId)!;
+    expect(w.type).toBe("bug");
+    expect(w.assignee).toBe("Priya");
+    expect(w.description).toBe("Retries double-charge.");
+    expect(w.acceptanceCriteria).toBe("No double charge on retry.");
+    expect(w.priority).toBe(1);
+    expect(w.storyPoints).toBe(5);
+    expect(w.severity).toBe(2);
+    expect(w.tags).toEqual(["payments", "regression"]);
+    expect(w.phase).toBe("build");
+    expect(w.sprint).toBe("Sprint 7");
+    expect(w.dueDate).toBe("2026-07-01");
+    expect(w.component).toBe("Billing");
+    expect(w.parentWiId).toBe("PAY-420");
+    expect(w.originalEstimate).toBe(8);
+  });
+
+  it("copies customFields", () => {
+    const item = itemWith(richSource());
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const w = deriveItem(withEvent(item, r.event)).workItems.find((x) => x.id === r.event.wiId)!;
+    expect(w.customFields).toEqual({ team_area: "checkout", build: 42 });
+  });
+
+  it("defaults the title to 'Clone of <source title>'", () => {
+    const item = itemWith(richSource());
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.event.wi?.title).toBe("Clone of Card declines on retry");
+  });
+
+  it("titleOverride wins over the default title (trimmed)", () => {
+    const item = itemWith(richSource());
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM", { titleOverride: "  Custom title  " });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.event.wi?.title).toBe("Custom title");
+  });
+
+  it("falls back to the default title when titleOverride is blank", () => {
+    const item = itemWith(richSource());
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM", { titleOverride: "   " });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.event.wi?.title).toBe("Clone of Card declines on retry");
+  });
+
+  it("caps the title at 500 characters", () => {
+    const longTitle = "x".repeat(600);
+    const item = itemWith({ ...richSource(), title: longTitle });
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect((r.event.wi?.title || "").length).toBe(500);
+  });
+
+  it("resets state to todo even when the source is in_progress", () => {
+    const item = itemWith(richSource()); // source state = in_progress
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.event.wi?.state).toBe("todo");
+  });
+
+  it("resets state to todo even when the source is done", () => {
+    const item = itemWith({ ...richSource(), state: "done" });
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.event.wi?.state).toBe("todo");
+  });
+
+  it("resets remainingEstimate to the source's originalEstimate", () => {
+    const item = itemWith(richSource()); // originalEstimate 8, remainingEstimate 3
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.wi?.remainingEstimate).toBe(8);
+    const w = deriveItem(withEvent(item, r.event)).workItems.find((x) => x.id === r.event.wiId)!;
+    expect(w.remainingEstimate).toBe(8);
+  });
+
+  it("omits remainingEstimate when the source has no originalEstimate", () => {
+    const source = richSource();
+    delete (source as Partial<WorkItem>).originalEstimate;
+    delete (source as Partial<WorkItem>).remainingEstimate;
+    const item = itemWith(source);
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.wi?.originalEstimate).toBeUndefined();
+    expect(r.event.wi?.remainingEstimate).toBeUndefined();
+  });
+
+  it("does not copy comments, worklogs, links; timeSpent is 0/undefined", () => {
+    const item = itemWith(richSource());
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.wi?.comments).toBeUndefined();
+    expect(r.event.wi?.worklogs).toBeUndefined();
+    expect(r.event.wi?.links).toBeUndefined();
+    const w = deriveItem(withEvent(item, r.event)).workItems.find((x) => x.id === r.event.wiId)!;
+    expect(w.comments ?? []).toEqual([]);
+    expect(w.worklogs ?? []).toEqual([]);
+    expect(w.links ?? []).toEqual([]);
+    expect(w.timeSpent ?? 0).toBe(0);
+  });
+
+  it("only includes cloneable keys that the source actually has (no undefined keys)", () => {
+    const minimal: WorkItem = { id: "PAY-418", type: "task", title: "Bare", state: "done", assignee: "Sam" };
+    const item = makeItem([minimal]);
+    const r = cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const wi = r.event.wi!;
+    expect(Object.keys(wi).sort()).toEqual(["assignee", "state", "title", "type"].sort());
+    expect(wi.state).toBe("todo");
+    expect(wi.title).toBe("Clone of Bare");
+  });
+
+  it("does not mutate the source work item", () => {
+    const source = richSource();
+    const item = itemWith(source);
+    const before = JSON.parse(JSON.stringify(source));
+    cloneWorkItem(item, deriveItem(item), "PAY-418", PM, "PM", { titleOverride: "X" });
+    expect(source).toEqual(before);
   });
 });

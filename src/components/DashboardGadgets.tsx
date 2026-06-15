@@ -19,7 +19,7 @@ const GADGET_LABELS: Record<string, string> = {
   workflow: "Workflow viewer",
 };
 
-const DEFAULT_ORDER = ["lane_spread", "project_health", "cfd", "goals", "created_resolved", "recent_work", "audit_log"];
+const DEFAULT_ORDER = ["lane_spread", "project_health", "cfd", "goals", "created_resolved", "recent_work", "audit_log", "workflow"];
 
 interface DashboardGadgetsProps {
   isAdmin: boolean;
