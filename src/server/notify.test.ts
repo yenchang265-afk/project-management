@@ -2,7 +2,7 @@
    recipient planning. DB insertion is covered by the integration test. */
 import { describe, it, expect } from "vitest";
 import type { Item, PdlcEvent } from "../lib/engine";
-import { extractMentions, planNotifications } from "./notify";
+import { extractMentions, expandGroupMentions, planNotifications } from "./notify";
 
 const USERS = [
   { id: "u-maya", name: "Maya Chen" },
@@ -34,6 +34,38 @@ describe("extractMentions", () => {
   it("returns [] for empty text or empty name list", () => {
     expect(extractMentions("", NAMES)).toEqual([]);
     expect(extractMentions("@Maya Chen", [])).toEqual([]);
+  });
+});
+
+/* ---------- expandGroupMentions ---------- */
+const GROUPS = [
+  { name: "Checkout Crew", members: ["Maya Chen", "Sam Okafor"] },
+  { name: "Platform", members: ["Priya Patel", "Sam Okafor"] },
+];
+
+describe("expandGroupMentions", () => {
+  it("returns the members of an @mentioned group", () => {
+    expect(expandGroupMentions("ping @Checkout Crew please", GROUPS).sort())
+      .toEqual(["Maya Chen", "Sam Okafor"]);
+  });
+
+  it("respects the word boundary (no match inside a longer token)", () => {
+    const groups = [{ name: "Team", members: ["Maya Chen"] }];
+    expect(expandGroupMentions("@Teamwork rules", groups)).toEqual([]);
+  });
+
+  it("returns [] for an unknown / unmatched group", () => {
+    expect(expandGroupMentions("@Nobody here", GROUPS)).toEqual([]);
+  });
+
+  it("unions two mentioned groups, de-duping overlapping members", () => {
+    const out = expandGroupMentions("@Checkout Crew + @Platform", GROUPS);
+    expect(out.sort()).toEqual(["Maya Chen", "Priya Patel", "Sam Okafor"]);
+  });
+
+  it("returns [] for empty text or empty groups", () => {
+    expect(expandGroupMentions("", GROUPS)).toEqual([]);
+    expect(expandGroupMentions("@Checkout Crew", [])).toEqual([]);
   });
 });
 
@@ -113,6 +145,59 @@ describe("planNotifications", () => {
     const event = E("ITEM_COMMENT", "Maya Chen", { text: "@Priya Patel " + "x".repeat(2000) });
     for (const r of planNotifications(item, event, USERS))
       expect(r.message.length).toBeLessThanOrEqual(300);
+  });
+});
+
+/* ---------- planNotifications — group mentions ---------- */
+// "Checkout Crew" = Maya (actor/watcher) + Sam (watcher) + Priya (neither).
+const TEAM = [{ name: "Checkout Crew", members: ["Maya Chen", "Sam Okafor", "Priya Patel"] }];
+
+describe("planNotifications — group mentions", () => {
+  it("@<team> notifies every member with kind 'mention'", () => {
+    const item = watchedItem();
+    const event = E("ITEM_COMMENT", "Priya Patel", { text: "heads up @Checkout Crew" });
+    const rows = planNotifications(item, event, USERS, TEAM);
+    const byUser = Object.fromEntries(rows.map((r) => [r.userId, r]));
+    expect(rows).toHaveLength(2);                  // Priya is the actor → excluded
+    expect(byUser["u-maya"].kind).toBe("mention");
+    expect(byUser["u-sam"].kind).toBe("mention");
+    expect(byUser["u-priya"]).toBeUndefined();
+  });
+
+  it("excludes the actor even when they are a member of the mentioned team", () => {
+    const item = watchedItem();
+    const event = E("ITEM_COMMENT", "Maya Chen", { text: "@Checkout Crew sync" });
+    const rows = planNotifications(item, event, USERS, TEAM);
+    expect(rows.some((r) => r.userId === "u-maya")).toBe(false);
+  });
+
+  it("a user both individually @mentioned and in a mentioned team gets ONE mention row", () => {
+    const item = watchedItem();
+    const event = E("ITEM_COMMENT", "Maya Chen", { text: "@Sam Okafor and @Checkout Crew" });
+    const rows = planNotifications(item, event, USERS, TEAM);
+    const sam = rows.filter((r) => r.userId === "u-sam");
+    expect(sam).toHaveLength(1);
+    expect(sam[0].kind).toBe("mention");
+  });
+
+  it("a team member who is also a watcher gets ONE row, kind 'mention'", () => {
+    const item = watchedItem(); // Sam watches
+    const event = E("ITEM_COMMENT", "Maya Chen", { text: "@Checkout Crew" });
+    const rows = planNotifications(item, event, USERS, TEAM);
+    const sam = rows.filter((r) => r.userId === "u-sam");
+    expect(sam).toHaveLength(1);
+    expect(sam[0].kind).toBe("mention");
+  });
+
+  it("regression: a 3-arg call (no groups) behaves exactly as before", () => {
+    const item = watchedItem();
+    const event = E("ITEM_COMMENT", "Maya Chen", { text: "thoughts, @Priya Patel?" });
+    const rows = planNotifications(item, event, USERS);
+    const byUser = Object.fromEntries(rows.map((r) => [r.userId, r]));
+    expect(rows).toHaveLength(2);
+    expect(byUser["u-sam"].kind).toBe("comment");
+    expect(byUser["u-priya"].kind).toBe("mention");
+    expect(byUser["u-maya"]).toBeUndefined();
   });
 });
 

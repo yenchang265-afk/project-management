@@ -4,7 +4,7 @@
    The planning core is pure and unit-tested: watchers come from the engine fold,
    @mentions from extractMentions, and the actor is never notified. */
 import { deriveItem, label, type Item, type PdlcEvent } from "@/lib/engine";
-import { getUsers } from "./repo/structure";
+import { getUsers, getStructure } from "./repo/structure";
 import { createNotifications, type NotificationDraft } from "./repo/notifications";
 import { emailNotifications } from "./mailer";
 
@@ -26,6 +26,23 @@ export function extractMentions(text: string, names: string[]): string[] {
   return out;
 }
 
+/** Pure: which group members are @mentioned in `text` via their group name?
+ *  Reuses extractMentions over the group names (same word-boundary rule), then
+ *  returns the de-duped union of the matched groups' members. */
+export function expandGroupMentions(
+  text: string,
+  groups: { name: string; members: string[] }[],
+): string[] {
+  if (!text || groups.length === 0) return [];
+  const hit = new Set(extractMentions(text, groups.map((g) => g.name)));
+  const out: string[] = [];
+  for (const g of groups) {
+    if (!hit.has(g.name)) continue;
+    for (const m of g.members) if (!out.includes(m)) out.push(m);
+  }
+  return out;
+}
+
 const snippet = (text: string) => (text.length > 120 ? text.slice(0, 117) + "…" : text);
 
 const COMMENT_TYPES = new Set(["ITEM_COMMENT", "WI_COMMENT"]);
@@ -36,6 +53,7 @@ const COMMENT_TYPES = new Set(["ITEM_COMMENT", "WI_COMMENT"]);
  *  several apply; the acting user is always excluded. */
 export function planNotifications(
   item: Item, event: PdlcEvent, users: { id: string; name: string }[],
+  groups: { name: string; members: string[] }[] = [],
 ): NotificationDraft[] {
   if (event.type !== "TRANSITION" && !COMMENT_TYPES.has(event.type)) return [];
 
@@ -58,7 +76,10 @@ export function planNotifications(
   // each). A WI_COMMENT also notifies the target work item's assignee and names
   // the work item rather than the parent item.
   const text = event.text ?? "";
-  const mentioned = new Set(extractMentions(text, users.map((u) => u.name)).map((n) => n.toLowerCase()));
+  const mentioned = new Set([
+    ...extractMentions(text, users.map((u) => u.name)),
+    ...expandGroupMentions(text, groups),
+  ].map((n) => n.toLowerCase()));
   const assignees = new Set<string>();
   let where = item.id;
   if (event.type === "WI_COMMENT") {
@@ -89,7 +110,9 @@ export async function notifyAfterCommand(item: Item, event: PdlcEvent): Promise<
   try {
     if (event.type !== "TRANSITION" && !COMMENT_TYPES.has(event.type)) return;
     const users = await getUsers();
-    const rows = planNotifications(item, event, users);
+    const struct = await getStructure();
+    const groups = struct.teams.map((t) => ({ name: t.name, members: t.members.map((m) => m.name) }));
+    const rows = planNotifications(item, event, users, groups);
     if (rows.length) {
       await createNotifications(rows);
       void emailNotifications(rows); // optional channel — no-op without SMTP_URL
