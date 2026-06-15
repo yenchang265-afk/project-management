@@ -214,8 +214,14 @@ export default function App() {
 
   const role: Role = me.role;
   const actor = me.name;
-  // de-duplicated user names for @mention autocomplete in comment boxes
-  const mentionNames = [...new Set(users.map((u) => u.name))];
+  // de-duplicated user + team names for @mention autocomplete in comment boxes
+  // (teams are mention groups: @<Team> notifies every member)
+  const mentionNames = [
+    ...new Set([
+      ...users.map((u) => u.name),
+      ...(structure.teams ?? []).map((t) => t.name),
+    ]),
+  ];
   // archived items stay in state (detail remains reachable) but are hidden
   // from boards/views/pickers; the list view has its own show-archived toggle
   const activeItems = items.filter((i) => !i.archivedAt);
