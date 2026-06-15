@@ -78,7 +78,7 @@ export function DashboardView({
               <div className="card-b">
                 <div className="dash-work">
                   {myWorkOrdered.map((w) => (
-                    <button key={w.itemId + ":" + w.id} className="dash-work-row" onClick={() => onSelectItem(w.itemId)}
+                    <button key={w.itemId + ":" + w.id} className="dash-work-row" onClick={() => onOpenWork(w.itemId, w.id)}
                       data-done={w.state === "done"}>
                       <span className="dash-work-state" style={{ background: WI_STATES[w.state].color }} />
                       <span className="dash-work-ti">{w.title}</span>
