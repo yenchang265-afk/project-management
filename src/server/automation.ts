@@ -110,10 +110,11 @@ export async function runScheduledAutomations(): Promise<{ rules: number; action
     const actor = AUTOMATION_ACTOR_PREFIX + rule.name;
     const problems: string[] = [];
     let ruleActions = 0;
+    let capped = false;
     outer: for (const { itemId, wiId } of matches)
       for (const action of rule.actions) {
         if (ruleActions >= MAX_ACTIONS_PER_RULE_TICK) {
-          problems.push(`capped at ${MAX_ACTIONS_PER_RULE_TICK} actions/tick`);
+          capped = true;
           break outer;
         }
         const cmd = toCommand(action, wiId);
@@ -124,8 +125,11 @@ export async function runScheduledAutomations(): Promise<{ rules: number; action
         if (out.status !== "ok")
           problems.push(`${itemId}/${wiId} ${action.kind}: ${out.status === "rejected" ? out.result.error : out.status}`);
       }
-    await recordRun(rule.id, eventId, problems.length === 0,
-      problems.slice(0, 5).join(" · ") || `applied to ${matches.length} work item(s)`);
+    const note = [
+      problems.slice(0, 5).join(" · "),
+      capped ? `capped at ${MAX_ACTIONS_PER_RULE_TICK} actions/tick` : "",
+    ].filter(Boolean).join(" · ") || `applied to ${matches.length} work item(s)`;
+    await recordRun(rule.id, eventId, problems.length === 0, note);
   }
   return { rules: rules.length, actions: actionCount };
 }
