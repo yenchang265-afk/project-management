@@ -44,7 +44,7 @@ export const POST = withAuth<Ctx>(async (req, user, ctx) => {
   const wiIdRaw = form.get("wiId");
   const wiId = typeof wiIdRaw === "string" && wiIdRaw.trim() ? wiIdRaw.trim().slice(0, 32) : null;
 
-  const r = await createAttachment(id, wiId, filename, mime, file.size, user.name);
+  const r = await createAttachment(id, wiId, filename, mime, file.size, user.id);
   if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 422 });
   try {
     await saveUpload(r.id, Buffer.from(await file.arrayBuffer()));

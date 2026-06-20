@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { runScheduledAutomations } from "@/server/automation";
 
@@ -12,7 +13,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ success: false, error: "Not found." }, { status: 404 });
 
   const auth = req.headers.get("authorization") ?? "";
-  if (auth !== `Bearer ${secret}`)
+  const expected = `Bearer ${secret}`;
+  const authBuf = Buffer.from(auth);
+  const expBuf = Buffer.from(expected);
+  if (authBuf.length !== expBuf.length || !timingSafeEqual(authBuf, expBuf))
     return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
 
   try {

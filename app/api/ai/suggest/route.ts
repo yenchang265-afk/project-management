@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth } from "@/server/auth";
 import { parseBody } from "@/server/http";
+import { rateLimited } from "@/server/rate-limit";
 import {
   aiAssignment, aiCommentSummary, aiEnabled, aiRiskFlags, aiSprintNarrative,
 } from "@/server/ai";
@@ -21,9 +22,11 @@ const SuggestSchema = z.discriminatedUnion("kind", [
     candidates: z.array(z.object({ name: z.string(), load: z.number() })).min(1).max(50) }).strict(),
 ]);
 
-export const POST = withAuth(async (req) => {
+export const POST = withAuth(async (req, user) => {
   if (!aiEnabled())
     return NextResponse.json({ success: false, error: "AI suggestions are not configured." }, { status: 404 });
+  if (rateLimited(`ai:${user.id}`, 20, 60_000))
+    return NextResponse.json({ success: false, error: "Too many AI requests. Try again shortly." }, { status: 429 });
 
   const body = await parseBody(req, SuggestSchema);
   if (!body.ok) return body.res;

@@ -41,7 +41,7 @@ export const DELETE = withAuth<Ctx>(async (_req, user, ctx) => {
   const { id } = await ctx.params;
   const att = await getAttachment(id);
   if (!att) return NextResponse.json({ success: false, error: "Attachment not found." }, { status: 422 });
-  if (att.uploader !== user.name && user.role !== "PM")
+  if (att.uploader !== user.id && user.role !== "PM")
     return NextResponse.json({ success: false, error: "Only the uploader or a PM can delete an attachment." }, { status: 403 });
   const r = await deleteAttachment(id);
   if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 422 });
