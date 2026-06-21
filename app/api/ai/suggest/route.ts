@@ -40,8 +40,8 @@ export const POST = withAuth(async (req, user) => {
       case "assignment": text = await aiAssignment(body.data.title, body.data.description ?? "", body.data.candidates); break;
     }
     return NextResponse.json({ success: true, data: { text } });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : "AI request failed." }, { status: 502 });
+      { success: false, error: "AI request failed." }, { status: 502 });
   }
 });

@@ -69,8 +69,10 @@ export function decodeState(cookie: string | undefined): SsoState | null {
   if (!cookie || !cookie.includes(".")) return null;
   const [payload, sig] = cookie.split(".", 2);
   const expected = sign(payload);
-  if (sig.length !== expected.length) return null;
-  if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expected);
+  if (sigBuf.byteLength !== expectedBuf.byteLength) return null;
+  if (!timingSafeEqual(sigBuf, expectedBuf)) return null;
   try {
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString()) as SsoState;
     if (!parsed.state || !parsed.nonce || !parsed.codeVerifier) return null;
