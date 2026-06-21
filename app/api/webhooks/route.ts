@@ -5,8 +5,17 @@ import { parseBody } from "@/server/http";
 import { requirePerm } from "@/server/permissions";
 import { createWebhook, listWebhooks } from "@/server/repo/webhooks";
 
+function isPrivateUrl(rawUrl: string): boolean {
+  try {
+    const host = new URL(rawUrl).hostname;
+    return /^(localhost|127\.|::1|0\.0\.0\.0|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)/.test(host);
+  } catch { return true; }
+}
+
 const CreateWebhookSchema = z.object({
-  url: z.string().url().max(500).refine((u) => /^https?:\/\//.test(u), "Only http(s) URLs."),
+  url: z.string().url().max(500)
+    .refine((u) => /^https?:\/\//.test(u), "Only http(s) URLs.")
+    .refine((u) => !isPrivateUrl(u), "Webhook URLs must not target private or loopback addresses."),
   kinds: z.array(z.string().min(1).max(40)).max(30).optional(), // omit = all events
 }).strict();
 

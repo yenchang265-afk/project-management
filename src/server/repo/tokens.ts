@@ -1,9 +1,12 @@
 /* Repository: API tokens. The plaintext token exists only in the create
-   response — the table stores its SHA-256. Lookup hashes the presented
-   token and matches the unique hash column. */
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+   response — the table stores its HMAC-SHA256 (keyed with SESSION_SECRET),
+   consistent with session token storage. Lookup hashes the presented token
+   and matches the unique hash column. Existing tokens created with bare
+   SHA-256 are implicitly invalidated and must be regenerated. */
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { Role } from "@/lib/engine";
+import { env } from "../env";
 import { pool } from "../db";
 
 export type TokenScope = "read" | "write";
@@ -24,8 +27,8 @@ export interface TokenUser {
   scope: TokenScope;
 }
 
-function sha256(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
+function hmac(s: string): string {
+  return createHmac("sha256", env().SESSION_SECRET).update(s).digest("hex");
 }
 
 function iso(v: unknown): string | null {
@@ -50,7 +53,7 @@ export async function createToken(
   const token = "cad_" + randomBytes(32).toString("base64url");
   await pool().query(
     "INSERT INTO api_tokens (id, user_id, name, token_hash, scope) VALUES (?, ?, ?, ?, ?)",
-    [id, userId, name, sha256(token), scope]);
+    [id, userId, name, hmac(token), scope]);
   return { id, token };
 }
 
@@ -67,7 +70,7 @@ export async function tokenUser(token: string): Promise<TokenUser | null> {
   const [rows] = await pool().query<RowDataPacket[]>(
     `SELECT t.id AS token_id, t.scope, u.id, u.email, u.name, u.role
        FROM api_tokens t JOIN users u ON u.id = t.user_id
-      WHERE t.token_hash = ?`, [sha256(token)]);
+      WHERE t.token_hash = ?`, [hmac(token)]);
   const r = rows[0];
   if (!r) return null;
   void pool().query("UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?", [r.token_id])

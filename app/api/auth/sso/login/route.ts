@@ -18,8 +18,8 @@ export async function GET(): Promise<NextResponse> {
       maxAge: 600, // 10 minutes — the login round-trip
     });
     return res;
-  } catch (e) {
+  } catch {
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : "SSO initiation failed." }, { status: 502 });
+      { success: false, error: "SSO initiation failed." }, { status: 502 });
   }
 }
