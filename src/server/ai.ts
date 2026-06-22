@@ -58,11 +58,9 @@ async function ask(prompt: { system: string; user: string }): Promise<string> {
   const res = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
-    thinking: { type: "adaptive" },
-    output_config: { effort: "low" },
     system: prompt.system,
     messages: [{ role: "user", content: prompt.user }],
-  } as Anthropic.MessageCreateParamsNonStreaming);
+  });
   return res.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
     .map((b) => b.text)

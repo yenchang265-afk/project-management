@@ -6,6 +6,7 @@
 
    Loop prevention: events appended by automation carry actor "automation:…"
    and are ignored here — rule chains terminate after one hop. */
+import { randomBytes } from "node:crypto";
 import { deriveItem, type Item, type PdlcEvent } from "@/lib/engine";
 import { parseCql, runCql, wiToCqlRow, type CqlQuery } from "@/lib/cql";
 import { enabledRulesFor, recordRun, type AutomationAction, type AutomationRule } from "./repo/automations";
@@ -99,7 +100,7 @@ export async function runScheduledAutomations(): Promise<{ rules: number; action
   let actionCount = 0;
   for (const rule of rules) {
     // unique ID per scheduled run — no real event exists for schedule triggers
-    const eventId = `sched-${rule.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const eventId = `sched-${rule.id}-${Date.now()}-${randomBytes(4).toString("hex")}`;
     let query: CqlQuery | null = null;
     if (rule.cql) {
       const parsed = parseCql(rule.cql);
