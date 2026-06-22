@@ -8,7 +8,7 @@ import { runScheduledAutomations } from "@/server/automation";
    session. Disabled (404) when the secret is unset, so it can't be probed in
    environments that don't opt in. */
 export async function POST(req: Request): Promise<NextResponse> {
-  const secret = process.env.AUTOMATION_TICK_SECRET;
+  const secret = process.env.AUTOMATION_TICK_SECRET?.trim();
   if (!secret)
     return NextResponse.json({ success: false, error: "Not found." }, { status: 404 });
 

@@ -54,7 +54,8 @@ export interface SsoState { state: string; nonce: string; codeVerifier: string; 
 function sign(payload: string): string {
   // SESSION_SECRET is validated at startup by env(); read it directly here so
   // the cookie helpers don't drag in the full env schema (and stay testable).
-  const secret = process.env.SESSION_SECRET ?? "";
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) throw new Error("SESSION_SECRET is not configured.");
   return createHmac("sha256", secret).update(payload).digest("hex");
 }
 
@@ -87,13 +88,16 @@ export const SSO_STATE_COOKIE = "cadence_sso";
 let _discovery: Promise<OpenIdClient.Configuration> | null = null;
 
 /** Memoized OIDC discovery for the configured issuer. openid-client is loaded
- *  lazily so the ESM dependency stays out of the pre-auth status path. */
+ *  lazily so the ESM dependency stays out of the pre-auth status path.
+ *  A rejected promise is cleared so the next call retries instead of
+ *  permanently breaking SSO until the server restarts. */
 export async function ssoDiscovery(): Promise<OpenIdClient.Configuration> {
   const cfg = ssoConfig();
   if (!cfg) throw new Error("SSO is not configured.");
   if (!_discovery) {
     const client = await import("openid-client");
-    _discovery = client.discovery(new URL(cfg.issuer), cfg.clientId, cfg.clientSecret);
+    const p = client.discovery(new URL(cfg.issuer), cfg.clientId, cfg.clientSecret);
+    _discovery = p.catch((e) => { _discovery = null; throw e; });
   }
   return _discovery;
 }
