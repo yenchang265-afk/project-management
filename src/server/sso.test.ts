@@ -45,8 +45,8 @@ describe("emailFromClaims", () => {
   it("lowercases and trims a verified email", () => {
     expect(emailFromClaims({ email: "  Maya@Example.com ", email_verified: true })).toBe("maya@example.com");
   });
-  it("accepts when email_verified is absent (provider didn't assert)", () => {
-    expect(emailFromClaims({ email: "sam@example.com" })).toBe("sam@example.com");
+  it("rejects when email_verified is absent (treat unknown as unverified)", () => {
+    expect(emailFromClaims({ email: "sam@example.com" })).toBeNull();
   });
   it("rejects an explicitly unverified email", () => {
     expect(emailFromClaims({ email: "sam@example.com", email_verified: false })).toBeNull();

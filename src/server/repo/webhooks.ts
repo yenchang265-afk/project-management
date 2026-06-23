@@ -56,16 +56,17 @@ export async function deleteWebhook(id: string): Promise<boolean> {
   return r.affectedRows > 0;
 }
 
-/** Success resets the failure streak; failure increments it and flips
- *  `disabled` once the streak reaches the threshold (dead-letter). */
+/** Success resets the failure streak and re-enables a previously dead-lettered
+ *  hook; failure increments the streak and disables it once it hits the threshold. */
 export async function recordWebhookResult(id: string, ok: boolean): Promise<void> {
   if (ok) {
-    await pool().query("UPDATE webhooks SET failures = 0 WHERE id = ?", [id]);
+    // Also clear disabled: a recovered endpoint should start receiving again.
+    await pool().query("UPDATE webhooks SET failures = 0, disabled = 0 WHERE id = ?", [id]);
     return;
   }
-  // MariaDB SET evaluates left-to-right with already-updated values, so
-  // `failures` here is the incremented streak.
+  // Use (failures + 1 >= ?) so the threshold is evaluated against the would-be
+  // post-increment value, not the pre-update row (standard SQL column-reference semantics).
   await pool().query(
-    "UPDATE webhooks SET failures = failures + 1, disabled = (failures >= ?) WHERE id = ?",
+    "UPDATE webhooks SET failures = failures + 1, disabled = (failures + 1 >= ?) WHERE id = ?",
     [DISABLE_AFTER, id]);
 }

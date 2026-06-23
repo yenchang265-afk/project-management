@@ -43,7 +43,8 @@ export function ssoEnabled(): boolean {
 export function emailFromClaims(claims: Record<string, unknown>): string | null {
   const email = claims.email;
   if (typeof email !== "string" || !email.includes("@")) return null;
-  if (claims.email_verified === false) return null;
+  // Require explicit verification — absent claim is treated as unverified (OIDC Core §5.1)
+  if (claims.email_verified !== true) return null;
   return email.trim().toLowerCase();
 }
 

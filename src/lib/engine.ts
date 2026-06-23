@@ -341,6 +341,9 @@ export function deriveItem(item: Item): Snapshot {
 
   let state: StateKey = "backlog";
   const conditions: Record<string, ConditionState> = {};
+  // tracks conditions last explicitly set to 'required' via CONDITION_RESET so
+  // the shift-left revert pass does not clobber an operator's intentional reset
+  const explicitlyRequired = new Set<string>();
   const flags: Snapshot["flags"] = { blocked: null, on_hold: null };
   const signoffs: Snapshot["signoffs"] = {};
   const subtracks: Snapshot["subtracks"] = { security: "pending", compliance: "pending" };
@@ -372,13 +375,13 @@ export function deriveItem(item: Item): Snapshot {
         state = e.to as StateKey;
         break;
       case "CONDITION_SATISFY":
-        if (e.condition) conditions[e.condition] = "satisfied";
+        if (e.condition) { conditions[e.condition] = "satisfied"; explicitlyRequired.delete(e.condition); }
         break;
       case "CONDITION_WAIVE":
-        if (e.condition) conditions[e.condition] = "waived";
+        if (e.condition) { conditions[e.condition] = "waived"; explicitlyRequired.delete(e.condition); }
         break;
       case "CONDITION_RESET":
-        if (e.condition) conditions[e.condition] = "required";
+        if (e.condition) { conditions[e.condition] = "required"; explicitlyRequired.add(e.condition); }
         break;
       case "SHIFT_LEFT_SET":
         // recomputed from the full set of active risks in second pass below
@@ -536,7 +539,8 @@ export function deriveItem(item: Item): Snapshot {
         if (turnedOn.has(c.key)) {
           if (cur === "not_applicable") conditions[c.key] = "required";
         } else {
-          if (cur === "required") conditions[c.key] = "not_applicable";
+          // only revert if no operator explicitly reset this condition to 'required'
+          if (cur === "required" && !explicitlyRequired.has(c.key)) conditions[c.key] = "not_applicable";
         }
       }
 
