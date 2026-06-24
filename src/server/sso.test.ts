@@ -76,4 +76,8 @@ describe("state cookie encode/decode", () => {
     expect(decodeState("garbage")).toBeNull();
     expect(decodeState("a.b")).toBeNull();
   });
+  it("rejects a valid cookie extended with trailing garbage", () => {
+    const cookie = encodeState(st);
+    expect(decodeState(cookie + ".extra")).toBeNull();
+  });
 });

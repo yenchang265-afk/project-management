@@ -4,6 +4,7 @@ import { withAuth } from "@/server/auth";
 import { parseBody } from "@/server/http";
 import { requirePerm } from "@/server/permissions";
 import { createVersion, listVersions } from "@/server/repo/versions";
+import { getScope } from "@/server/scope";
 
 const CreateVersionSchema = z.object({
   projectId: z.string().min(1).max(36),
@@ -12,10 +13,13 @@ const CreateVersionSchema = z.object({
 }).strict();
 
 /** GET /api/versions?projectId=… — a project's versions with member counts. */
-export const GET = withAuth(async (req) => {
+export const GET = withAuth(async (req, user) => {
   const projectId = (new URL(req.url).searchParams.get("projectId") ?? "").trim();
   if (!projectId)
     return NextResponse.json({ success: false, error: "projectId is required." }, { status: 400 });
+  const scope = await getScope(user);
+  if (!scope.all && !scope.projectIds.has(projectId))
+    return NextResponse.json({ success: false, error: "Project not found." }, { status: 404 });
   const versions = await listVersions(projectId);
   return NextResponse.json({ success: true, data: { versions } });
 });

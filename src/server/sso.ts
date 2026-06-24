@@ -68,8 +68,13 @@ export function encodeState(s: SsoState): string {
 
 /** Decode + verify a state cookie; null on any tampering or malformed input. */
 export function decodeState(cookie: string | undefined): SsoState | null {
-  if (!cookie || !cookie.includes(".")) return null;
-  const [payload, sig] = cookie.split(".", 2);
+  if (!cookie) return null;
+  const parts = cookie.split(".");
+  // Reject cookies with anything other than exactly one dot (payload.sig).
+  // split('.', 2) silently discards trailing content, which would let an
+  // attacker append arbitrary data to a valid cookie and still pass verification.
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
   const expected = sign(payload);
   const sigBuf = Buffer.from(sig);
   const expectedBuf = Buffer.from(expected);
