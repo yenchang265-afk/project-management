@@ -112,11 +112,19 @@ export async function runScheduledAutomations(): Promise<{ rules: number; action
     const problems: string[] = [];
     let ruleActions = 0;
     let capped = false;
+    // itemComment targets the item, not a work item — dedupe so it fires only
+    // once per item per rule tick even when multiple work items match.
+    const firedItemActions = new Set<string>();
     outer: for (const { itemId, wiId } of matches)
-      for (const action of rule.actions) {
+      for (const [ai, action] of rule.actions.entries()) {
         if (ruleActions >= MAX_ACTIONS_PER_RULE_TICK) {
           capped = true;
           break outer;
+        }
+        let dedupKey: string | undefined;
+        if (action.kind === "itemComment") {
+          dedupKey = `${itemId}:${ai}`;
+          if (firedItemActions.has(dedupKey)) continue;
         }
         const cmd = toCommand(action, wiId);
         if (!cmd) continue;
@@ -125,6 +133,8 @@ export async function runScheduledAutomations(): Promise<{ rules: number; action
         ruleActions++;
         if (out.status !== "ok")
           problems.push(`${itemId}/${wiId} ${action.kind}: ${out.status === "rejected" ? out.result.error : out.status}`);
+        else if (dedupKey)
+          firedItemActions.add(dedupKey);
       }
     const note = [
       problems.slice(0, 5).join(" · "),

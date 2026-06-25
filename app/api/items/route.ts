@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { randomInt } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { ev, type Item } from "@/lib/engine";
 import { withAuth } from "@/server/auth";
@@ -39,7 +39,7 @@ export const POST = withAuth(async (req, user) => {
 
   const { spawnFrom, expectedVersion } = parsed.data;
   const prefix = spawnFrom.split("-")[0];
-  const childId = prefix + "-" + (500 + randomInt(480));
+  const childId = prefix + "-" + randomBytes(4).toString("hex");
 
   const out = await spawnChild(spawnFrom, expectedVersion, childId, (parent: Item) => {
     const child: Item = {

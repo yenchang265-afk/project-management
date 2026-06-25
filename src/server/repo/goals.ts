@@ -32,19 +32,33 @@ function dateStr(v: unknown): string | null {
   return String(v).slice(0, 10);
 }
 
-export async function listGoals(): Promise<GoalInfo[]> {
+export async function listGoals(scopedProjectIds?: Set<string>): Promise<GoalInfo[]> {
   const [rows] = await pool().query<RowDataPacket[]>(
     "SELECT id, title, target_date, status FROM goals ORDER BY target_date IS NULL, target_date, title");
-  const [members] = await pool().query<RowDataPacket[]>("SELECT goal_id, item_id FROM item_goals");
+  let memberRows: RowDataPacket[];
+  if (scopedProjectIds === undefined) {
+    // PM/admin: all member items
+    [memberRows] = await pool().query<RowDataPacket[]>("SELECT goal_id, item_id FROM item_goals");
+  } else if (scopedProjectIds.size === 0) {
+    memberRows = [];
+  } else {
+    const ph = [...scopedProjectIds].map(() => "?").join(",");
+    [memberRows] = await pool().query<RowDataPacket[]>(
+      `SELECT ig.goal_id, ig.item_id FROM item_goals ig
+         JOIN items i ON i.id = ig.item_id WHERE i.project_id IN (${ph})`,
+      [...scopedProjectIds]);
+  }
   const byGoal = new Map<string, string[]>();
-  for (const m of members) {
+  for (const m of memberRows) {
     if (!byGoal.has(m.goal_id)) byGoal.set(m.goal_id, []);
     byGoal.get(m.goal_id)!.push(m.item_id);
   }
-  return rows.map((r) => ({
-    id: r.id, title: r.title, targetDate: dateStr(r.target_date),
-    status: r.status as GoalStatus, itemIds: (byGoal.get(r.id) || []).sort(),
-  }));
+  return rows
+    .filter(r => scopedProjectIds === undefined || byGoal.has(r.id))
+    .map((r) => ({
+      id: r.id, title: r.title, targetDate: dateStr(r.target_date),
+      status: r.status as GoalStatus, itemIds: (byGoal.get(r.id) || []).sort(),
+    }));
 }
 
 export async function createGoal(title: string, targetDate: string | null): Promise<WriteResult> {

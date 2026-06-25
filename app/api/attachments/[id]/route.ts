@@ -40,15 +40,19 @@ export const GET = withAuth<Ctx>(async (_req, user, ctx) => {
 export const DELETE = withAuth<Ctx>(async (_req, user, ctx) => {
   const { id } = await ctx.params;
   const att = await getAttachment(id);
-  if (!att) return NextResponse.json({ success: false, error: "Attachment not found." }, { status: 422 });
+  if (!att) return NextResponse.json({ success: false, error: "Attachment not found." }, { status: 404 });
   // scope gate: same as GET — out-of-scope items are indistinguishable from missing
   const [parent, scope] = await Promise.all([getItem(att.itemId), getScope(user)]);
   if (!parent || !itemInScope(parent.item.project ?? null, scope))
     return NextResponse.json({ success: false, error: "Attachment not found." }, { status: 404 });
   if (att.uploader !== user.id && user.role !== "PM")
     return NextResponse.json({ success: false, error: "Only the uploader or a PM can delete an attachment." }, { status: 403 });
-  const r = await deleteAttachment(id);
-  if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 422 });
+  // Remove disk file first (best-effort): if the subsequent DB delete fails the
+  // client sees an error and can retry; an orphaned DB row with no bytes is
+  // recoverable (410 on download). The reverse order leaves an orphaned file
+  // with no DB record — unrecoverable without manual intervention.
   await removeUpload(id);
+  const r = await deleteAttachment(id);
+  if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 404 });
   return NextResponse.json({ success: true, data: {} });
 });
