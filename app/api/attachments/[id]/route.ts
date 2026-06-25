@@ -53,6 +53,6 @@ export const DELETE = withAuth<Ctx>(async (_req, user, ctx) => {
   // with no DB record — unrecoverable without manual intervention.
   await removeUpload(id);
   const r = await deleteAttachment(id);
-  if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 422 });
+  if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 404 });
   return NextResponse.json({ success: true, data: {} });
 });

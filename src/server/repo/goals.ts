@@ -53,10 +53,12 @@ export async function listGoals(scopedProjectIds?: Set<string>): Promise<GoalInf
     if (!byGoal.has(m.goal_id)) byGoal.set(m.goal_id, []);
     byGoal.get(m.goal_id)!.push(m.item_id);
   }
-  return rows.map((r) => ({
-    id: r.id, title: r.title, targetDate: dateStr(r.target_date),
-    status: r.status as GoalStatus, itemIds: (byGoal.get(r.id) || []).sort(),
-  }));
+  return rows
+    .filter(r => scopedProjectIds === undefined || byGoal.has(r.id))
+    .map((r) => ({
+      id: r.id, title: r.title, targetDate: dateStr(r.target_date),
+      status: r.status as GoalStatus, itemIds: (byGoal.get(r.id) || []).sort(),
+    }));
 }
 
 export async function createGoal(title: string, targetDate: string | null): Promise<WriteResult> {
