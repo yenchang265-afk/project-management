@@ -33,20 +33,34 @@ function dateStr(v: unknown): string | null {
 }
 
 export async function listGoals(scopedProjectIds?: Set<string>): Promise<GoalInfo[]> {
+  // Fast path: no project access → no visible goals.
+  if (scopedProjectIds !== undefined && scopedProjectIds.size === 0) return [];
   const [rows] = await pool().query<RowDataPacket[]>(
     "SELECT id, title, target_date, status FROM goals ORDER BY target_date IS NULL, target_date, title");
   let memberRows: RowDataPacket[];
   if (scopedProjectIds === undefined) {
     // PM/admin: all member items
     [memberRows] = await pool().query<RowDataPacket[]>("SELECT goal_id, item_id FROM item_goals");
-  } else if (scopedProjectIds.size === 0) {
-    memberRows = [];
   } else {
-    const ph = [...scopedProjectIds].map(() => "?").join(",");
+    const ids = [...scopedProjectIds];
+    const ph = ids.map(() => "?").join(",");
     [memberRows] = await pool().query<RowDataPacket[]>(
       `SELECT ig.goal_id, ig.item_id FROM item_goals ig
          JOIN items i ON i.id = ig.item_id WHERE i.project_id IN (${ph})`,
-      [...scopedProjectIds]);
+      ids);
+    // Exclude goals whose items span projects outside this scope: showing a
+    // truncated itemIds list produces distorted progress rollups on the client.
+    if (memberRows.length > 0) {
+      const goalIds = [...new Set<string>(memberRows.map((r) => r.goal_id))];
+      const phG = goalIds.map(() => "?").join(",");
+      const [totals] = await pool().query<RowDataPacket[]>(
+        `SELECT goal_id, COUNT(*) AS total FROM item_goals WHERE goal_id IN (${phG}) GROUP BY goal_id`,
+        goalIds);
+      const totalMap = new Map<string, number>(totals.map((r) => [r.goal_id as string, Number(r.total)]));
+      const scopedCount = new Map<string, number>();
+      for (const r of memberRows) scopedCount.set(r.goal_id, (scopedCount.get(r.goal_id) ?? 0) + 1);
+      memberRows = memberRows.filter((r) => scopedCount.get(r.goal_id) === totalMap.get(r.goal_id));
+    }
   }
   const byGoal = new Map<string, string[]>();
   for (const m of memberRows) {

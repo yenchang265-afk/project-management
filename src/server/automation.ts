@@ -131,10 +131,9 @@ export async function runScheduledAutomations(): Promise<{ rules: number; action
         const out = await applyCommandAsSystem(itemId, cmd, actor, "PM");
         actionCount++;
         ruleActions++;
+        if (dedupKey) firedItemActions.add(dedupKey);
         if (out.status !== "ok")
           problems.push(`${itemId}/${wiId} ${action.kind}: ${out.status === "rejected" ? out.result.error : out.status}`);
-        else if (dedupKey)
-          firedItemActions.add(dedupKey);
       }
     const note = [
       problems.slice(0, 5).join(" · "),
