@@ -1,6 +1,7 @@
 /* Repository: goals + item membership. Progress is derived in the route from
    member items' event logs — only membership rows live here. Same WriteResult
    pattern as repo/structure.ts. */
+import { randomBytes } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { pool } from "../db";
 import type { WriteResult } from "./structure";
@@ -76,7 +77,10 @@ export async function listGoals(scopedProjectIds?: Set<string>): Promise<GoalInf
 }
 
 export async function createGoal(title: string, targetDate: string | null): Promise<WriteResult> {
-  const id = "goal-" + slug(title);
+  // Use a random opaque ID — slug-derived IDs expose the goal title to anyone
+  // who observes the ID out of band (notifications, audit entries, etc.).
+  // Title uniqueness is enforced by the UNIQUE constraint on goals.title.
+  const id = "goal-" + randomBytes(6).toString("hex");
   try {
     await pool().query("INSERT INTO goals (id, title, target_date) VALUES (?, ?, ?)", [id, title, targetDate]);
     return { ok: true, id };
