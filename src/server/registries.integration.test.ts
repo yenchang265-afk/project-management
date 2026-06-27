@@ -268,22 +268,25 @@ describe.skipIf(!adminUrl)("repo/registries against MariaDB (cadence_test)", () 
       "INSERT INTO items (id, title, area, priority, parent, type, stakeholders, work_items) VALUES ('GOAL-1', 'T', 'A', 'High', NULL, 'feature', '[]', '[]')");
 
     const g = await goals.createGoal("Q3 payments revamp", "2026-09-30");
-    expect(g).toEqual({ ok: true, id: "goal-q3-payments-revamp" });
+    expect(g.ok).toBe(true);
+    if (!g.ok) return;
+    const goalId = g.id;
+    expect(goalId).toMatch(/^goal-[0-9a-f]{12}$/);
     expect((await goals.createGoal("Q3 payments revamp", null)).ok).toBe(false); // dup title
 
-    expect((await goals.goalItemOp(g.ok ? g.id : "", "GOAL-1", "add")).ok).toBe(true);
-    expect((await goals.goalItemOp("goal-q3-payments-revamp", "GOAL-1", "add")).ok).toBe(true); // idempotent
-    expect((await goals.goalItemOp("goal-q3-payments-revamp", "GOAL-nope", "add")).ok).toBe(false);
+    expect((await goals.goalItemOp(goalId, "GOAL-1", "add")).ok).toBe(true);
+    expect((await goals.goalItemOp(goalId, "GOAL-1", "add")).ok).toBe(true); // idempotent
+    expect((await goals.goalItemOp(goalId, "GOAL-nope", "add")).ok).toBe(false);
     expect((await goals.goalItemOp("goal-nope", "GOAL-1", "add")).ok).toBe(false);
 
     const listed = await goals.listGoals();
-    expect(listed.find((x) => x.id === "goal-q3-payments-revamp"))
+    expect(listed.find((x) => x.id === goalId))
       .toMatchObject({ title: "Q3 payments revamp", targetDate: "2026-09-30", status: "active", itemIds: ["GOAL-1"] });
 
-    expect((await goals.setGoalStatus("goal-q3-payments-revamp", "done")).ok).toBe(true);
+    expect((await goals.setGoalStatus(goalId, "done")).ok).toBe(true);
     await admin.query("DELETE FROM items WHERE id = 'GOAL-1'"); // member item deleted → row cascades
-    expect((await goals.listGoals()).find((x) => x.id === "goal-q3-payments-revamp")!.itemIds).toEqual([]);
-    expect((await goals.deleteGoal("goal-q3-payments-revamp")).ok).toBe(true);
-    expect((await goals.deleteGoal("goal-q3-payments-revamp")).ok).toBe(false);
+    expect((await goals.listGoals()).find((x) => x.id === goalId)!.itemIds).toEqual([]);
+    expect((await goals.deleteGoal(goalId)).ok).toBe(true);
+    expect((await goals.deleteGoal(goalId)).ok).toBe(false);
   });
 });
