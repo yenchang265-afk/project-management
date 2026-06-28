@@ -38,7 +38,7 @@ export interface ProjectInfo {
   id: string; key: string; name: string; description: string | null; teamIds: string[];
   workflowSchemeId: string | null;
 }
-export interface TeamMemberInfo { id: string; name: string; role: Role; }
+export interface TeamMemberInfo { id: string; name: string; role?: Role; }
 export interface TeamInfo { id: string; name: string; orgId: string | null; members: TeamMemberInfo[]; projectIds: string[]; }
 export interface OrgInfo { id: string; name: string; teamIds: string[]; }
 export interface Structure { orgs: OrgInfo[]; projects: ProjectInfo[]; teams: TeamInfo[]; }

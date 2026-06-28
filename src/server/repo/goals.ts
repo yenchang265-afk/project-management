@@ -39,6 +39,9 @@ export async function listGoals(scopedProjectIds?: Set<string>): Promise<GoalInf
   const [rows] = await pool().query<RowDataPacket[]>(
     "SELECT id, title, target_date, status FROM goals ORDER BY target_date IS NULL, target_date, title");
   let memberRows: RowDataPacket[];
+  // For non-PM paths, tracks which goals have any items at all (goals with zero
+  // items are not project-scoped and should be visible to everyone).
+  let goalsWithItems: Set<string> | undefined;
   if (scopedProjectIds === undefined) {
     // PM/admin: all member items
     [memberRows] = await pool().query<RowDataPacket[]>("SELECT goal_id, item_id FROM item_goals");
@@ -49,15 +52,16 @@ export async function listGoals(scopedProjectIds?: Set<string>): Promise<GoalInf
       `SELECT ig.goal_id, ig.item_id FROM item_goals ig
          JOIN items i ON i.id = ig.item_id WHERE i.project_id IN (${ph})`,
       ids);
-    // Exclude goals whose items span projects outside this scope: showing a
-    // truncated itemIds list produces distorted progress rollups on the client.
+    // Fetch total item counts for ALL goals (not just in-scope ones) so we can:
+    // (a) exclude goals whose items span projects outside this scope — showing a
+    //     truncated itemIds list produces distorted progress rollups on the client;
+    // (b) identify zero-item goals, which carry no project affiliation and should
+    //     be visible to all authenticated users.
+    const [allTotals] = await pool().query<RowDataPacket[]>(
+      "SELECT goal_id, COUNT(*) AS total FROM item_goals GROUP BY goal_id");
+    const totalMap = new Map<string, number>(allTotals.map((r) => [r.goal_id as string, Number(r.total)]));
+    goalsWithItems = new Set(totalMap.keys());
     if (memberRows.length > 0) {
-      const goalIds = [...new Set<string>(memberRows.map((r) => r.goal_id))];
-      const phG = goalIds.map(() => "?").join(",");
-      const [totals] = await pool().query<RowDataPacket[]>(
-        `SELECT goal_id, COUNT(*) AS total FROM item_goals WHERE goal_id IN (${phG}) GROUP BY goal_id`,
-        goalIds);
-      const totalMap = new Map<string, number>(totals.map((r) => [r.goal_id as string, Number(r.total)]));
       const scopedCount = new Map<string, number>();
       for (const r of memberRows) scopedCount.set(r.goal_id, (scopedCount.get(r.goal_id) ?? 0) + 1);
       memberRows = memberRows.filter((r) => scopedCount.get(r.goal_id) === totalMap.get(r.goal_id));
@@ -69,7 +73,7 @@ export async function listGoals(scopedProjectIds?: Set<string>): Promise<GoalInf
     byGoal.get(m.goal_id)!.push(m.item_id);
   }
   return rows
-    .filter(r => scopedProjectIds === undefined || byGoal.has(r.id))
+    .filter(r => scopedProjectIds === undefined || byGoal.has(r.id) || !goalsWithItems?.has(r.id))
     .map((r) => ({
       id: r.id, title: r.title, targetDate: dateStr(r.target_date),
       status: r.status as GoalStatus, itemIds: (byGoal.get(r.id) || []).sort(),

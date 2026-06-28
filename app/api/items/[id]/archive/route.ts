@@ -20,6 +20,7 @@ export const PATCH = withAuth<Ctx>(async (req, user, ctx) => {
     return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
   const body = await parseBody(req, Schema);
   if (!body.ok) return body.res;
-  await setItemArchived(id, body.data.archived);
+  const ok = await setItemArchived(id, body.data.archived);
+  if (!ok) return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
   return NextResponse.json({ success: true, data: {} });
 });
