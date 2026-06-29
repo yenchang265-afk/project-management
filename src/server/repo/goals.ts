@@ -20,10 +20,6 @@ function isDup(e: unknown): boolean {
   return !!e && typeof e === "object" && (e as { code?: string }).code === "ER_DUP_ENTRY";
 }
 
-function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
-}
-
 function dateStr(v: unknown): string | null {
   if (v == null) return null;
   if (v instanceof Date) {
@@ -73,7 +69,7 @@ export async function listGoals(scopedProjectIds?: Set<string>): Promise<GoalInf
     byGoal.get(m.goal_id)!.push(m.item_id);
   }
   return rows
-    .filter(r => scopedProjectIds === undefined || byGoal.has(r.id) || !goalsWithItems?.has(r.id))
+    .filter(r => scopedProjectIds === undefined || byGoal.has(r.id) || !goalsWithItems!.has(r.id))
     .map((r) => ({
       id: r.id, title: r.title, targetDate: dateStr(r.target_date),
       status: r.status as GoalStatus, itemIds: (byGoal.get(r.id) || []).sort(),

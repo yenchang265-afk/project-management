@@ -71,7 +71,16 @@ export async function setItemArchived(itemId: string, archived: boolean): Promis
     archived
       ? "UPDATE items SET archived_at = CURRENT_TIMESTAMP WHERE id = ?"
       : "UPDATE items SET archived_at = NULL WHERE id = ?", [itemId]);
-  return r.affectedRows > 0;
+  if (r.affectedRows > 0) return true;
+  // For unarchive: MariaDB reports affectedRows=0 when archived_at is already NULL
+  // (value unchanged). Re-check existence to distinguish idempotent success from
+  // a TOCTOU deletion between the route's getItem check and this UPDATE.
+  if (!archived) {
+    const [[row]] = await pool().query<import("mysql2/promise").RowDataPacket[]>(
+      "SELECT 1 FROM items WHERE id = ?", [itemId]);
+    return !!row;
+  }
+  return false;
 }
 
 export type AppendOutcome =
