@@ -76,8 +76,8 @@ export function decodeState(cookie: string | undefined): SsoState | null {
   if (parts.length !== 2) return null;
   const [payload, sig] = parts;
   const expected = sign(payload);
-  const sigBuf = Buffer.from(sig);
-  const expectedBuf = Buffer.from(expected);
+  const sigBuf = Buffer.from(sig, "hex");
+  const expectedBuf = Buffer.from(expected, "hex");
   if (sigBuf.byteLength !== expectedBuf.byteLength) return null;
   if (!timingSafeEqual(sigBuf, expectedBuf)) return null;
   try {
