@@ -76,8 +76,8 @@ export function decodeState(cookie: string | undefined): SsoState | null {
   if (parts.length !== 2) return null;
   const [payload, sig] = parts;
   const expected = sign(payload);
-  const sigBuf = Buffer.from(sig);
-  const expectedBuf = Buffer.from(expected);
+  const sigBuf = Buffer.from(sig, "hex");
+  const expectedBuf = Buffer.from(expected, "hex");
   if (sigBuf.byteLength !== expectedBuf.byteLength) return null;
   if (!timingSafeEqual(sigBuf, expectedBuf)) return null;
   try {
@@ -101,9 +101,11 @@ export async function ssoDiscovery(): Promise<OpenIdClient.Configuration> {
   const cfg = ssoConfig();
   if (!cfg) throw new Error("SSO is not configured.");
   if (!_discovery) {
-    const client = await import("openid-client");
-    const p = client.discovery(new URL(cfg.issuer), cfg.clientId, cfg.clientSecret);
-    _discovery = p.catch((e) => { _discovery = null; throw e; });
+    // Assign synchronously before any await so concurrent callers share this
+    // promise instead of each starting a redundant discovery fetch.
+    _discovery = import("openid-client")
+      .then((client) => client.discovery(new URL(cfg.issuer), cfg.clientId, cfg.clientSecret))
+      .catch((e) => { _discovery = null; throw e; });
   }
   return _discovery;
 }
